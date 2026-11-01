@@ -63,8 +63,17 @@ function dollar(options = {}) {
     model: {
       complete: async (request) => {
         log.requests.push(request)
+        if (options.hang) return new Promise(() => {})
         return answer
       },
+    },
+    clock: {
+      after:
+        options.clock ??
+        ((ms, fn) => {
+          const timer = setTimeout(fn, 60_000)
+          return { cancel: () => clearTimeout(timer) }
+        }),
     },
     store: {
       get: async (key) => saved[key],
@@ -73,7 +82,10 @@ function dollar(options = {}) {
       },
     },
     command: {
-      register: async (command) => log.commands.push(command),
+      register: async (command) => {
+        log.commands.push(command)
+        if (options.registerFails) throw new Error('the name is taken')
+      },
     },
   }
   return { $, log, saved }
@@ -89,7 +101,7 @@ function deepFreeze(value) {
 }
 
 async function fire(mod, event, options = {}) {
-  const { $, log, saved } = dollar({ answer: options.answer })
+  const { $, log, saved } = dollar(options)
   const result = options.result ?? { ok: true }
   let calls = 0
   const out = await mod.tool($, deepFreeze({ ...event }), async () => {
@@ -186,12 +198,12 @@ function check(name, actual, expected) {
   run = await fire(
     mod,
     { tool: 'Edit', file_path: '/Users/x/app/src/a.ts', old_string: 'a\nb\nc', new_string: 'a\nb\nc\nd\ne' },
-    { answer: { isAnswered: true, text: '"Add a null guard to the token parser."\n' } },
+    { answer: '"Add a null guard to the token parser."\n' },
   )
   check('edit asks the model once', run.log.requests.length, 1)
   check('model name', run.log.requests[0].model, 'haiku')
   check('max tokens', run.log.requests[0].maxTokens, 60)
-  check('timeout', run.log.requests[0].timeoutMs, 1500)
+  check('request keys', Object.keys(run.log.requests[0]).sort(), ['maxTokens', 'model', 'prompt'])
   check('prompt names the tool', run.log.requests[0].prompt.includes('Tool: Edit'), true)
   check('prompt carries the draft', run.log.requests[0].prompt.includes('Draft: '), true)
   check('edit band', await band(mod), '✦ Edit Add a null guard to the token parser')
@@ -204,6 +216,14 @@ function check(name, actual, expected) {
   )
   check('fallback tried the model', run.log.requests.length, 1)
   check('fallback band', await band(mod), '▸ Edit ~/app/src/a.ts (3 lines → 1 line)')
+
+  // Newer builds resolve to { isAnswered, text }; both contracts are read
+  run = await fire(
+    mod,
+    { tool: 'Write', file_path: '/Users/x/app/src/b.ts', content: 'x' },
+    { answer: { isAnswered: true, text: 'Write the migration stub' } },
+  )
+  check('accepts the object contract', await band(mod), '✦ Write Write the migration stub')
 }
 
 // ---------------------------------------------------------------------------
@@ -213,7 +233,7 @@ function check(name, actual, expected) {
   const mod = await loadMod()
   await band(mod)
 
-  const sentinel = { result: { isError: true } }
+  const sentinel = { result: 'boom', text: 'boom', isError: true }
   const run = await fire(mod, { tool: 'Bash', command: 'ls' }, { result: sentinel })
   check('next called once', run.calls, 1)
   check('result identity preserved', run.out === sentinel, true)
@@ -266,7 +286,7 @@ function check(name, actual, expected) {
   run = await fire(
     mod,
     { tool: 'Read', file_path: '/Users/x/app/src/c.ts' },
-    { answer: { isAnswered: true, text: 'Check how the cache key is built' } },
+    { answer: 'Check how the cache key is built' },
   )
   check('model mode phrases a read', run.log.requests.length, 1)
   check('model mode band', await band(mod), '✦ Read Check how the cache key is built')
@@ -291,11 +311,47 @@ function check(name, actual, expected) {
     check('flags: ' + command, run.log.toasts.length, 1)
   }
 
-  const quiet = ['rm -i file', 'git clean -nd', 'git push origin main']
+  const quiet = ['rm -i file', 'git clean -nd', 'git push origin main', 'rm notes.txt && echo -rf']
   for (const command of quiet) {
     const run = await fire(mod, { tool: 'Bash', command })
     check('ignores: ' + command, run.log.toasts.length, 0)
   }
+}
+
+// ---------------------------------------------------------------------------
+// A slow model loses to the local line instead of holding the tool open
+// ---------------------------------------------------------------------------
+{
+  const mod = await loadMod()
+  await band(mod)
+  const run = await fire(
+    mod,
+    { tool: 'Edit', file_path: '/Users/x/a.ts', old_string: 'a', new_string: 'b' },
+    {
+      hang: true,
+      clock: (ms, fn) => {
+        const timer = setTimeout(fn, 0)
+        return { cancel: () => clearTimeout(timer) }
+      },
+    },
+  )
+  check('slow model asked once', run.log.requests.length, 1)
+  check('slow model falls back', await band(mod), '▸ Edit ~/a.ts (1 line → 1 line)')
+}
+
+// ---------------------------------------------------------------------------
+// A taken command name must not abort the rest of session start
+// ---------------------------------------------------------------------------
+{
+  const mod = await loadMod()
+  const { $, log } = dollar({ saved: { enabled: false }, registerFails: true })
+  await mod.session($, deepFreeze({}), async () => undefined)
+  check('tried both commands', log.commands.map((c) => c.name), ['intent', 'intent-log'])
+  check(
+    'restored state after a failed registration',
+    (await mod.intent($, { args: '' })).text,
+    'intent line is off, engine auto. Use /intent on, off, toggle, mode, log, or clear.',
+  )
 }
 
 // ---------------------------------------------------------------------------

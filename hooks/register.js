@@ -14,8 +14,8 @@ const DETAIL_LIMIT = 110
 
 // The small, fast model used to phrase an intent. Costs a few tokens per call.
 const MODEL = 'haiku'
-// Deliberately short: the local line is already on screen, and the tool call
-// waits for this answer, so a slow model must lose to the fallback.
+// The request has no timeout option on 2.1.273, and the tool call waits for
+// this answer, so the mod stops waiting here and keeps the local line.
 const MODEL_TIMEOUT_MS = 1500
 const MODEL_MAX_TOKENS = 60
 
@@ -58,15 +58,24 @@ export function register(on) {
     uiSeen = false
 
     // Register the commands first: if the store is unavailable on this
-    // Claude Code build, the commands still exist.
-    await $.command.register({
-      name: 'intent',
-      description: 'Toggle the intent line above the prompt: /intent [on|off|mode|log|clear]',
-    })
-    await $.command.register({
-      name: 'intent-log',
-      description: 'List what Claude has done this session, in plain language',
-    })
+    // Claude Code build, the commands still exist. A name taken by another
+    // mod must not stop the rest of session start.
+    for (const command of [
+      {
+        name: 'intent',
+        description: 'Toggle the intent line above the prompt: /intent [on|off|mode|log|clear]',
+      },
+      {
+        name: 'intent-log',
+        description: 'List what Claude has done this session, in plain language',
+      },
+    ]) {
+      try {
+        await $.command.register(command)
+      } catch {
+        // Leave the other command, and the store restore, to run.
+      }
+    }
 
     try {
       const saved = await $.store.get('enabled')
@@ -127,13 +136,21 @@ export function register(on) {
     history.push(item)
     if (history.length > MAX_HISTORY) history.shift()
 
-    const result = await next(e)
+    let result
+    try {
+      result = await next(e)
+    } catch (error) {
+      // The chain failed; record it before the error continues outward.
+      item.outcome = 'failed'
+      throw error
+    }
 
     // Record the outcome for /intent-log, then return the result untouched so
-    // Claude reads exactly what the tool produced.
-    const inner = result && result.result ? result.result : result
-    if (inner && inner.deny) item.outcome = 'denied'
-    else if (inner && inner.isError) item.outcome = 'failed'
+    // Claude reads exactly what the tool produced. 2.1.273 puts deny and
+    // isError on the envelope; read the inner result too, for other builds.
+    const inner = result && result.result && typeof result.result === 'object' ? result.result : null
+    if (result && (result.deny || (inner && inner.deny))) item.outcome = 'denied'
+    else if (result && (result.isError || (inner && inner.isError))) item.outcome = 'failed'
     else item.outcome = 'ok'
     return result
   })
@@ -244,18 +261,63 @@ async function modelIntent($, e, item) {
     'One-line intent:'
 
   try {
-    const answer = await $.model.complete({
-      model: MODEL,
-      prompt,
-      maxTokens: MODEL_MAX_TOKENS,
-      timeoutMs: MODEL_TIMEOUT_MS,
-    })
-    if (!answer || !answer.isAnswered) return null
-    return cleanIntent(answer.text)
+    const answer = await withDeadline(
+      $,
+      $.model.complete({
+        model: MODEL,
+        prompt,
+        maxTokens: MODEL_MAX_TOKENS,
+      }),
+      MODEL_TIMEOUT_MS,
+    )
+    const text = answerText(answer)
+    return text ? cleanIntent(text) : null
   } catch {
     // A refusal, a blocked model, or a bad request: keep the local line.
     return null
   }
+}
+
+// Claude Code 2.1.273 resolves to a plain string. Later builds resolve to
+// { isAnswered, text, reason }, so read both contracts.
+function answerText(answer) {
+  if (typeof answer === 'string') return answer
+  if (answer && typeof answer === 'object' && answer.isAnswered) {
+    return typeof answer.text === 'string' ? answer.text : null
+  }
+  return null
+}
+
+// 2.1.273 has no timeout option, so the wait is bounded here. A slow model
+// loses to the local line rather than holding the tool call open.
+function withDeadline($, work, ms) {
+  return new Promise((resolve, reject) => {
+    let done = false
+    let timer = null
+
+    function finish(settle, value) {
+      if (done) return
+      done = true
+      try {
+        if (timer && typeof timer.cancel === 'function') timer.cancel()
+      } catch {
+        // A timer that cannot be cancelled has already fired.
+      }
+      settle(value)
+    }
+
+    try {
+      timer = $.clock.after(ms, () => finish(resolve, null))
+    } catch {
+      // No timer on this build: the request's own timeout is the only bound.
+      timer = null
+    }
+
+    work.then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error),
+    )
+  })
 }
 
 // Decide whether the wording is worth a model call. 'auto' upgrades the calls
@@ -351,7 +413,11 @@ function logText() {
     .slice(-20)
     .map((item) => {
       const tick =
-        item.outcome === 'denied' ? '✗' : item.outcome === 'failed' ? '✗' : '✓'
+        item.outcome === 'denied' || item.outcome === 'failed'
+          ? '✗'
+          : item.outcome === 'ok'
+            ? '✓'
+            : '·'
       const engine = item.source === 'model' ? '✦' : '▸'
       const risk = item.risk ? '  ⚠ ' + item.risk : ''
       return (
@@ -502,14 +568,15 @@ function generic(e) {
   return parts.length ? parts.join(' ') : 'run'
 }
 
-// Commands that can destroy work or reach outside the project.
+// Commands that can destroy work or reach outside the project. Each rule is
+// tested against one command in a chain, so `rm notes.txt && echo -rf` is not
+// mistaken for a recursive delete.
 const RISK_RULES = [
   [
     /\brm\b(?=[^\n]*(\s-[A-Za-z]*[rR][A-Za-z]*|\s--recursive))(?=[^\n]*(\s-[A-Za-z]*[fF][A-Za-z]*|\s--force))/,
     'delete files recursively',
   ],
   [/\bgit\s+reset\s+--hard\b/, 'discard commits and uncommitted work'],
-  [/\bgit\s+clean\s+(-[A-Za-z]*f[A-Za-z]*|--force)/, 'delete untracked files'],
   [
     /\bgit\s+push\b[^\n]*(--force(-with-lease)?|\s-f\b|\s\+\S)/,
     'rewrite remote history',
@@ -517,7 +584,6 @@ const RISK_RULES = [
   [/\b(DROP|TRUNCATE)\s+(TABLE|DATABASE)\b/i, 'drop database data'],
   [/\bmkfs\b|\bdd\s+if=|>\s*\/dev\/[sh]d/, 'write to a raw disk'],
   [/:\s*\(\s*\)\s*\{[^}]*\}\s*;\s*:/, 'is a fork bomb'],
-  [/\b(curl|wget)\b[^\n]*\|\s*(sudo\s+)?(ba)?sh\b/, 'pipe the internet into a shell'],
   [/\bsudo\b/, 'run as root'],
   [/\bchmod\s+(-[A-Za-z]+\s+)*777/, 'make files world-writable'],
   [/\bnpm\s+publish\b|\bcargo\s+publish\b/, 'publish a package'],
@@ -525,8 +591,25 @@ const RISK_RULES = [
 
 function riskOf(tool, e) {
   if (tool !== 'Bash') return null
-  const cmd = String(e.command || '')
-  for (const [re, why] of RISK_RULES) if (re.test(cmd)) return why
+  const command = String(e.command || '')
+
+  // A download is only risky across its pipe, so this one needs the whole line.
+  if (/\b(curl|wget)\b[^\n]*\|\s*(sudo\s+)?(ba)?sh\b/.test(command)) {
+    return 'pipe the internet into a shell'
+  }
+
+  // git clean is destructive only when forced, and never in a dry run.
+  if (/\bgit\s+clean\b/.test(command)) {
+    const flags = command.match(/(?:^|\s)-[A-Za-z]+/g) || []
+    const forced = flags.some((flag) => flag.includes('f')) || /--force\b/.test(command)
+    const dryRun = flags.some((flag) => flag.includes('n'))
+    if (forced && !dryRun) return 'delete untracked files'
+  }
+
+  // Everything else is judged per command in the chain.
+  for (const segment of command.split(/\s*(?:&&|\|\||;)\s*/)) {
+    for (const [rule, why] of RISK_RULES) if (rule.test(segment)) return why
+  }
   return null
 }
 
