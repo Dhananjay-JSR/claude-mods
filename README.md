@@ -83,7 +83,7 @@ Check it loaded with `/plugin` (Tab to **Installed**) or just run `/intent`.
 | **2.1.259 – 2.1.286** | `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. `run.sh` sets it. |
 | Older than 2.1.259 | Mods don't exist yet. Update Claude Code. |
 
-Built and verified against **2.1.273** on macOS. `claude plugin validate` passes.
+Built and verified against **2.1.273** on macOS. `claude plugin validate` passes. On this machine the account's credential answered `$.model.complete` with HTTP 403, so the model path is covered by the type declarations Claude Code wrote for that build plus the unit tests; the band, the commands, the local engine and the risk rules were run end-to-end.
 
 ## How the intent is worked out
 
@@ -106,7 +106,7 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 
 `Bash` is the interesting one: Claude Code's Bash tool already requires Claude to describe each command, so that description **is** the stated intent — normally buried in the tool row.
 
-The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words, hard-caps the result at 110 characters, gives the call 1.5 seconds, and checks `isAnswered`. Any failure, timeout, or refusal silently keeps the local line: the intent must never break a call.
+The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words and hard-caps the result at 110 characters. `$.model.complete` resolves to a plain string on Claude Code 2.1.273 and to `{ isAnswered, text }` on later builds, so both are read. The request has no timeout option there, so the mod stops waiting after 1.5 seconds itself. Any failure, timeout, or refusal silently keeps the local line: the intent must never break a call.
 
 ## Risk detection
 
@@ -132,7 +132,7 @@ A Claude Mod runs inside Claude Code's own process, so the rules are strict:
 
 ```
 ❯ ./register.js hooks: session.start, tool.call, ui.render{component=AbovePrompt}, command.run{command=intent}, command.run{command=intent-log}
-❯ ./register.js calls: $.command.register, $.model.complete (via modelIntent), $.store.get, $.store.set, $.ui.invalidate, $.ui.resolve, $.ui.toast
+❯ ./register.js calls: $.clock.after (via withDeadline), $.command.register, $.model.complete (via modelIntent), $.store.get, $.store.set, $.ui.invalidate, $.ui.resolve, $.ui.toast
 ✔ Validation passed
 ```
 
@@ -155,7 +155,7 @@ intent-lens/
 
 ```bash
 node tests/intent.test.mjs
-# 36 pass, 0 fail
+# 42 pass, 0 fail
 ```
 
 ## Limitations
