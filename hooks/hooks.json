@@ -1,0 +1,4 @@
+{
+  "description": "intent-lens: translates each tool call into one line of plain English above the prompt",
+  "modules": ["./register.js"]
+}

@@ -1,0 +1,6 @@
+# Claude Code writes type declarations here on load
+.claude-plugin/types/
+.claude/
+
+# OS noise
+.DS_Store
