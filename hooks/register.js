@@ -15,13 +15,24 @@ export function register(on) {
   // Fires for every tool, including subagent and MCP calls. Observing only:
   // it runs before the tool, then passes the event on unchanged.
   on('tool.call', async ($, e, next) => {
-    lastIntent = intentOf(e)
+    const item = intentOf(e)
+    lastIntent = item
 
     // Ask for a redraw so the band shows this intent before the tool runs.
     try {
       $.ui.invalidate('ui.render')
     } catch {
       // No UI (claude -p, headless): nothing to draw.
+    }
+
+    // Warn about calls that can destroy work. Best effort: a missing toast
+    // API must not stop the tool.
+    if (item.risk) {
+      try {
+        $.ui.toast('⚠ ' + item.tool + ' will ' + item.risk, { timeoutMs: 6000 })
+      } catch {
+        // Toast unavailable.
+      }
     }
 
     return next(e)
@@ -46,13 +57,15 @@ export function register(on) {
 
 function bandLine($, e, item, columns) {
   const { Box, Text } = $.ui.resolve(e)
+  const mark = item.risk ? '⚠' : '▸'
+  const color = item.risk ? 'red' : 'cyan'
   const room = Math.max(16, columns - item.tool.length - 4)
 
   return Box({
     flexDirection: 'row',
     columnGap: 1,
     children: [
-      Text({ color: 'cyan', children: ['▸ ' + item.tool] }),
+      Text({ color, children: [mark + ' ' + item.tool] }),
       Text({
         dimColor: true,
         wrap: 'truncate',
@@ -64,12 +77,13 @@ function bandLine($, e, item, columns) {
 
 // ---------------------------------------------------------------- heuristics
 
-// Turn a tool call into { tool, detail }. Pure: no mods API, no I/O.
+// Turn a tool call into { tool, detail, risk }. Pure: no mods API, no I/O.
 function intentOf(e) {
   const tool = String(e.tool || 'Tool')
   return {
     tool: displayTool(tool),
     detail: describe(tool, e),
+    risk: riskOf(tool, e),
   }
 }
 
@@ -195,6 +209,28 @@ function generic(e) {
     return short(oneLine(e.description), DETAIL_LIMIT)
   }
   return parts.length ? parts.join(' ') : 'run'
+}
+
+// Commands that can destroy work or reach outside the project.
+const RISK_RULES = [
+  [/\brm\s+-[A-Za-z]*r[A-Za-z]*f|\brm\s+-[A-Za-z]*f[A-Za-z]*r/, 'delete files recursively'],
+  [/\bgit\s+reset\s+--hard\b/, 'discard commits and uncommitted work'],
+  [/\bgit\s+clean\s+-[A-Za-z]*[fd]/, 'delete untracked files'],
+  [/\bgit\s+push\b[^\n]*(--force|--force-with-lease|\s-f\b)/, 'rewrite remote history'],
+  [/\b(DROP|TRUNCATE)\s+(TABLE|DATABASE)\b/i, 'drop database data'],
+  [/\bmkfs\b|\bdd\s+if=|>\s*\/dev\/[sh]d/, 'write to a raw disk'],
+  [/:\s*\(\s*\)\s*\{[^}]*\}\s*;\s*:/, 'is a fork bomb'],
+  [/\b(curl|wget)\b[^\n]*\|\s*(sudo\s+)?(ba)?sh\b/, 'pipe the internet into a shell'],
+  [/\bsudo\b/, 'run as root'],
+  [/\bchmod\s+-R\s+777/, 'make files world-writable'],
+  [/\bnpm\s+publish\b|\bcargo\s+publish\b/, 'publish a package'],
+]
+
+function riskOf(tool, e) {
+  if (tool !== 'Bash') return null
+  const cmd = String(e.command || '')
+  for (const [re, why] of RISK_RULES) if (re.test(cmd)) return why
+  return null
 }
 
 // ------------------------------------------------------------------- strings
