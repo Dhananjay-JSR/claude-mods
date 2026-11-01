@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title desc">
+  <title id="title">intent-lens</title>
+  <desc id="desc">A coral lens with a four-point spark at its centre, set in a dark rounded square.</desc>
+
+  <rect width="512" height="512" rx="112" fill="#1A1614"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="110.5" fill="none"
+        stroke="#ffffff" stroke-opacity="0.07"/>
+
+  <!-- handle, drawn first so the ring sits on top of it -->
+  <path d="M332 332 L410 410" stroke="#DE7A55" stroke-width="38" stroke-linecap="round"/>
+
+  <!-- lens -->
+  <circle cx="232" cy="232" r="150" fill="none" stroke="#DE7A55" stroke-width="26"/>
+
+  <!-- sheen on the upper-left of the ring -->
+  <path d="M102.1 157 A 150 150 0 0 1 180.7 91" fill="none"
+        stroke="#FFC7AC" stroke-width="9" stroke-linecap="round" stroke-opacity="0.9"/>
+
+  <!-- spark: small enough that the lens stays the mark at 32px -->
+  <path d="M232 168
+           C 239 221 243 225 296 232
+           C 243 239 239 243 232 296
+           C 225 243 221 239 168 232
+           C 221 225 225 221 232 168 Z"
+        fill="#FFE7D8"/>
+</svg>
