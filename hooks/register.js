@@ -4,8 +4,7 @@
  * Claude Code calls `register` once when the plugin loads and passes `on`.
  * Every hook receives ($, e, next): the mods API, the frozen event, and the
  * continuation. Nothing here imports npm packages, reads the filesystem, or
- * calls a model, so it costs no tokens and `claude plugin validate` can list
- * everything it does.
+ * calls a model unless the intent engine asks for it.
  */
 
 // How many intents `/intent-log` remembers per session
@@ -13,9 +12,36 @@ const MAX_HISTORY = 50
 // Longest detail shown in the band, before the terminal width trims it further
 const DETAIL_LIMIT = 110
 
+// The small, fast model used to phrase an intent. Costs a few tokens per call.
+const MODEL = 'haiku'
+// Deliberately short: the local line is already on screen, and the tool call
+// waits for this answer, so a slow model must lose to the fallback.
+const MODEL_TIMEOUT_MS = 1500
+const MODEL_MAX_TOKENS = 60
+
+// Instructions live in the prompt, not in `system`, so the call also works
+// through Bedrock, Vertex, Foundry and LLM gateways.
+const MODEL_RULES =
+  'You describe what a coding agent is about to do with one tool call. ' +
+  'Reply with a single line: imperative, specific, at most 12 words, ' +
+  'no quotes, no markdown, no trailing period. Prefer what changes or why ' +
+  'over restating the arguments.\n\n'
+
+// Tools this mod already phrases well without a model.
+const KNOWN_TOOLS = new Set([
+  'Bash', 'BashOutput', 'KillBash', 'KillShell', 'Read', 'Write', 'Edit',
+  'MultiEdit', 'NotebookEdit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task',
+  'Agent', 'TodoWrite', 'AskUserQuestion', 'ExitPlanMode', 'Skill',
+  'SlashCommand', 'TaskOutput',
+])
+
 // Module state. Hot reload runs `register` again, so this resets on save;
 // the on/off switch is kept in $.store so it survives reloads and sessions.
 let enabled = true
+// Which engine phrases the intent: 'auto' upgrades the calls that read worst.
+let mode = 'auto'
+// Set once the band has drawn, so headless runs never spend tokens.
+let uiSeen = false
 let lastIntent = null
 let history = []
 let seq = 0
@@ -24,11 +50,18 @@ export function register(on) {
   // ---------------------------------------------------------------- session
 
   on('session.start', async ($, e, next) => {
+    // A resumed session reuses this process, so start from a clean slate:
+    // otherwise the previous conversation's calls leak into /intent-log.
+    history = []
+    seq = 0
+    lastIntent = null
+    uiSeen = false
+
     // Register the commands first: if the store is unavailable on this
     // Claude Code build, the commands still exist.
     await $.command.register({
       name: 'intent',
-      description: 'Toggle the intent line above the prompt: /intent [on|off|log|clear]',
+      description: 'Toggle the intent line above the prompt: /intent [on|off|mode|log|clear]',
     })
     await $.command.register({
       name: 'intent-log',
@@ -38,8 +71,12 @@ export function register(on) {
     try {
       const saved = await $.store.get('enabled')
       if (typeof saved === 'boolean') enabled = saved
+      const savedMode = await $.store.get('mode')
+      if (savedMode === 'local' || savedMode === 'auto' || savedMode === 'model') {
+        mode = savedMode
+      }
     } catch {
-      // No store on this build: the in-memory default stands.
+      // No store on this build: the in-memory defaults stand.
     }
 
     return next(e)
@@ -50,24 +87,23 @@ export function register(on) {
   // Fires for every tool, including subagent and MCP calls. Observing only:
   // it runs before the tool, then passes the event on unchanged.
   on('tool.call', async ($, e, next) => {
-    const item = intentOf(e)
+    const raw = String(e.tool || 'Tool')
+    const item = intentOf(raw, e)
     seq += 1
     item.n = seq
 
+    // Show the local line immediately, then refine it if the engine asks for
+    // a model. The band never sits blank while the model thinks.
     lastIntent = item
-    history.push(item)
-    if (history.length > MAX_HISTORY) history.shift()
-
-    // Ask for a redraw so the band shows this intent before the tool runs.
     try {
       $.ui.invalidate('ui.render')
     } catch {
       // No UI (claude -p, headless): nothing to draw.
     }
 
-    // Warn about calls that can destroy work. Best effort: a missing toast
-    // API must not stop the tool.
-    if (enabled && item.risk) {
+    // Warn about calls that can destroy work, even when the band is hidden.
+    // Best effort: a missing toast API must not stop the tool.
+    if (item.risk) {
       try {
         $.ui.toast('⚠ ' + item.tool + ' will ' + item.risk, { timeoutMs: 6000 })
       } catch {
@@ -75,12 +111,29 @@ export function register(on) {
       }
     }
 
+    if (enabled && wantsModel(raw, item)) {
+      const better = await modelIntent($, e, item)
+      if (better) {
+        item.detail = better
+        item.source = 'model'
+        try {
+          $.ui.invalidate('ui.render')
+        } catch {
+          // No UI to redraw.
+        }
+      }
+    }
+
+    history.push(item)
+    if (history.length > MAX_HISTORY) history.shift()
+
     const result = await next(e)
 
     // Record the outcome for /intent-log, then return the result untouched so
     // Claude reads exactly what the tool produced.
-    if (result && result.deny) item.outcome = 'denied'
-    else if (result && result.isError) item.outcome = 'failed'
+    const inner = result && result.result ? result.result : result
+    if (inner && inner.deny) item.outcome = 'denied'
+    else if (inner && inner.isError) item.outcome = 'failed'
     else item.outcome = 'ok'
     return result
   })
@@ -89,43 +142,72 @@ export function register(on) {
 
   // The band directly above the prompt. Drawn only while Claude is working.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // Firing at all proves a real UI is drawing this session; headless runs
+    // never raise this event, so they never spend tokens on a model call.
+    uiSeen = true
+
     const working = !e.props || e.props.isWorking !== false
     if (!enabled || !lastIntent || !working) return next(e)
 
     const columns = (e.props && e.props.bodyColumns) || 80
-    const { Box, Text } = $.ui.resolve(e)
+    const el = $.ui.resolve(e)
 
     // Keep Claude Code's own band content below ours.
     const theirs = await next(e)
 
-    return Box({
+    return el.Box({
       flexDirection: 'column',
-      children: [bandLine($, e, lastIntent, columns), theirs],
+      children: [bandLine(el, lastIntent, columns), theirs],
     })
   })
 
   // --------------------------------------------------------------- commands
 
   on('command.run', { command: 'intent' }, async ($, e) => {
-    const arg = String(e.args || '').trim().toLowerCase()
+    const parts = String(e.args || '').trim().toLowerCase().split(/\s+/)
+    const verb = parts[0] || ''
+    const value = parts[1] || ''
 
-    if (arg === 'log' || arg === 'history') return { text: logText() }
-    if (arg === 'clear') {
+    if (verb === 'log' || verb === 'history') return { text: logText() }
+    if (verb === 'clear') {
       history = []
       seq = 0
-      lastIntent = null
       return { text: 'history cleared.' }
     }
 
-    if (arg === 'on') enabled = true
-    else if (arg === 'off') enabled = false
-    else if (arg === 'toggle') enabled = !enabled
+    // Switch the engine: /intent mode model, or the shorthand /intent model
+    const asked = verb === 'mode' ? value : verb
+    if (asked === 'local' || asked === 'auto' || asked === 'model') {
+      mode = asked
+      try {
+        await $.store.set('mode', mode)
+      } catch {
+        // Not persisted, but it still applies to this session.
+      }
+      try {
+        $.ui.invalidate('ui.render')
+      } catch {
+        // No UI to redraw.
+      }
+      return { text: 'engine ' + mode + ' — ' + engineHint(mode) }
+    }
+    if (verb === 'mode') {
+      return {
+        text: 'engine is ' + mode + '. Use /intent mode local, auto, or model.',
+      }
+    }
+
+    if (verb === 'on') enabled = true
+    else if (verb === 'off') enabled = false
+    else if (verb === 'toggle') enabled = !enabled
     else {
       return {
         text:
           'intent line is ' +
           (enabled ? 'on' : 'off') +
-          '. Use /intent on, off, toggle, log, or clear.',
+          ', engine ' +
+          mode +
+          '. Use /intent on, off, toggle, mode, log, or clear.',
       }
     }
 
@@ -149,13 +231,104 @@ export function register(on) {
   on('command.run', { command: 'intent-log' }, async () => ({ text: logText() }))
 }
 
+// ---------------------------------------------------------------- the model
+
+// Ask the small model for a better line. Returns null on any failure so the
+// caller keeps the local phrasing; the intent line must never break a call.
+async function modelIntent($, e, item) {
+  const prompt =
+    MODEL_RULES +
+    'Tool: ' + String(e.tool || 'Tool') + '\n' +
+    'Arguments:\n' + argumentsOf(e) + '\n' +
+    'Draft: ' + item.detail + '\n' +
+    'One-line intent:'
+
+  try {
+    const answer = await $.model.complete({
+      model: MODEL,
+      prompt,
+      maxTokens: MODEL_MAX_TOKENS,
+      timeoutMs: MODEL_TIMEOUT_MS,
+    })
+    if (!answer || !answer.isAnswered) return null
+    return cleanIntent(answer.text)
+  } catch {
+    // A refusal, a blocked model, or a bad request: keep the local line.
+    return null
+  }
+}
+
+// Decide whether the wording is worth a model call. 'auto' upgrades the calls
+// where the local line is weakest: edits, and tools this mod doesn't know.
+// Risk is never delegated: the warning must not depend on a model's wording.
+function wantsModel(raw, item) {
+  if (item.risk) return false
+  if (mode === 'local') return false
+  if (!uiSeen) return false
+  if (mode === 'model') return true
+  return (
+    raw === 'Edit' ||
+    raw === 'Write' ||
+    raw === 'MultiEdit' ||
+    raw === 'NotebookEdit' ||
+    raw.startsWith('mcp__') ||
+    !KNOWN_TOOLS.has(raw)
+  )
+}
+
+// A compact, bounded view of the tool arguments for the prompt.
+function argumentsOf(e) {
+  const skip = new Set(['tool', 'agentId', 'tool_use_id', 'session_id'])
+  const parts = []
+  let budget = 900
+  for (const key of Object.keys(e)) {
+    if (skip.has(key)) continue
+    const value = e[key]
+    if (value === undefined || value === null) continue
+    let text
+    if (typeof value === 'string') text = value
+    else {
+      try {
+        text = JSON.stringify(value)
+      } catch {
+        continue
+      }
+    }
+    if (!text) continue
+    if (text.length > 200) text = text.slice(0, 199) + '…'
+    const line = key + ': ' + text
+    if (line.length > budget) break
+    budget -= line.length
+    parts.push(line)
+  }
+  return parts.join('\n') || '(none)'
+}
+
+// Keep a model answer to one clean line, or reject it and fall back.
+function cleanIntent(text) {
+  if (typeof text !== 'string') return null
+  let line = oneLine(text)
+  line = line.replace(/^[-*•]\s*/, '').replace(/^intent\s*[:\-]\s*/i, '')
+  line = line.replace(/^["'`]+|["'`]+$/g, '').replace(/[.!]+$/, '')
+  line = oneLine(line)
+  if (line.length < 3) return null
+  return short(line, DETAIL_LIMIT)
+}
+
+function engineHint(which) {
+  if (which === 'local') return 'free and instant, no model calls.'
+  if (which === 'model') return 'Claude phrases every call; a few tokens each.'
+  return 'local lines, upgraded by Claude for edits and unknown tools.'
+}
+
 // ---------------------------------------------------------------- rendering
 
-function bandLine($, e, item, columns) {
-  const { Box, Text } = $.ui.resolve(e)
-  const mark = item.risk ? '⚠' : '▸'
-  const color = item.risk ? 'red' : 'cyan'
-  const room = Math.max(16, columns - item.tool.length - 4)
+function bandLine(el, item, columns) {
+  const { Box, Text } = el
+  const mark = item.risk ? '⚠' : item.source === 'model' ? '✦' : '▸'
+  const color = item.risk ? 'red' : item.source === 'model' ? 'magenta' : 'cyan'
+  // The marker and a gap sit before the tool name, and another gap after it.
+  const room = Math.max(16, columns - item.tool.length - 6)
 
   return Box({
     flexDirection: 'row',
@@ -179,21 +352,33 @@ function logText() {
     .map((item) => {
       const tick =
         item.outcome === 'denied' ? '✗' : item.outcome === 'failed' ? '✗' : '✓'
+      const engine = item.source === 'model' ? '✦' : '▸'
       const risk = item.risk ? '  ⚠ ' + item.risk : ''
-      return tick + ' ' + String(item.n).padStart(2, ' ') + '. ' + item.tool + ' · ' + item.detail + risk
+      return (
+        tick +
+        ' ' +
+        String(item.n).padStart(2, ' ') +
+        '. ' +
+        engine +
+        ' ' +
+        item.tool +
+        ' · ' +
+        item.detail +
+        risk
+      )
     })
     .join('\n')
 }
 
 // ---------------------------------------------------------------- heuristics
 
-// Turn a tool call into { tool, detail, risk }. Pure: no mods API, no I/O.
-function intentOf(e) {
-  const tool = String(e.tool || 'Tool')
+// Turn a tool call into { tool, detail, risk, source }. Pure: no mods API.
+function intentOf(raw, e) {
   return {
-    tool: displayTool(tool),
-    detail: describe(tool, e),
-    risk: riskOf(tool, e),
+    tool: displayTool(raw),
+    detail: describe(raw, e),
+    risk: riskOf(raw, e),
+    source: 'local',
   }
 }
 
@@ -227,52 +412,48 @@ function describe(tool, e) {
 
     case 'Write':
       return (
-        'write ' +
         (e.file_path ? shortPath(e.file_path) : 'a file') +
-        (typeof e.content === 'string' ? ' (' + lineCount(e.content) + ' lines)' : '')
+        (typeof e.content === 'string' ? ' (' + lines(lineCount(e.content)) + ')' : '')
       )
 
     case 'Edit':
       return (
-        'edit ' +
         (e.file_path ? shortPath(e.file_path) : 'a file') +
         (typeof e.old_string === 'string' && typeof e.new_string === 'string'
-          ? ' (' + lineCount(e.old_string) + ' → ' + lineCount(e.new_string) + ' lines)'
+          ? ' (' + lines(lineCount(e.old_string)) + ' → ' + lines(lineCount(e.new_string)) + ')'
           : '')
       )
 
     case 'MultiEdit':
       return (
-        'edit ' +
         (e.file_path ? shortPath(e.file_path) : 'a file') +
         (Array.isArray(e.edits) ? ' (' + e.edits.length + ' changes)' : '')
       )
 
     case 'NotebookEdit':
-      return 'edit notebook ' + (e.notebook_path ? shortPath(e.notebook_path) : '')
+      return e.notebook_path ? shortPath(e.notebook_path) : 'a notebook'
 
     case 'Grep': {
       const where = e.path ? ' in ' + shortPath(e.path) : ''
-      return 'search for "' + short(String(e.pattern || ''), 50) + '"' + where
+      return '"' + short(String(e.pattern || ''), 50) + '"' + where
     }
 
     case 'Glob':
       return (
-        'find files matching ' +
         short(String(e.pattern || '*'), 60) +
         (e.path ? ' under ' + shortPath(e.path) : '')
       )
 
     case 'WebFetch':
-      return 'fetch ' + hostOf(String(e.url || ''))
+      return hostOf(String(e.url || ''))
     case 'WebSearch':
-      return 'search the web for "' + short(String(e.query || ''), 70) + '"'
+      return '"' + short(String(e.query || ''), 70) + '" on the web'
 
     case 'Task':
     case 'Agent': {
       const kind = e.subagent_type ? e.subagent_type + ' subagent' : 'subagent'
       const why = e.description || ''
-      return 'start a ' + kind + (why ? ' — ' + short(String(why), 70) : '')
+      return kind + (why ? ' — ' + short(String(why), 70) : '')
     }
 
     case 'TodoWrite':
@@ -323,16 +504,22 @@ function generic(e) {
 
 // Commands that can destroy work or reach outside the project.
 const RISK_RULES = [
-  [/\brm\s+-[A-Za-z]*r[A-Za-z]*f|\brm\s+-[A-Za-z]*f[A-Za-z]*r/, 'delete files recursively'],
+  [
+    /\brm\b(?=[^\n]*(\s-[A-Za-z]*[rR][A-Za-z]*|\s--recursive))(?=[^\n]*(\s-[A-Za-z]*[fF][A-Za-z]*|\s--force))/,
+    'delete files recursively',
+  ],
   [/\bgit\s+reset\s+--hard\b/, 'discard commits and uncommitted work'],
-  [/\bgit\s+clean\s+-[A-Za-z]*[fd]/, 'delete untracked files'],
-  [/\bgit\s+push\b[^\n]*(--force|--force-with-lease|\s-f\b)/, 'rewrite remote history'],
+  [/\bgit\s+clean\s+(-[A-Za-z]*f[A-Za-z]*|--force)/, 'delete untracked files'],
+  [
+    /\bgit\s+push\b[^\n]*(--force(-with-lease)?|\s-f\b|\s\+\S)/,
+    'rewrite remote history',
+  ],
   [/\b(DROP|TRUNCATE)\s+(TABLE|DATABASE)\b/i, 'drop database data'],
   [/\bmkfs\b|\bdd\s+if=|>\s*\/dev\/[sh]d/, 'write to a raw disk'],
   [/:\s*\(\s*\)\s*\{[^}]*\}\s*;\s*:/, 'is a fork bomb'],
   [/\b(curl|wget)\b[^\n]*\|\s*(sudo\s+)?(ba)?sh\b/, 'pipe the internet into a shell'],
   [/\bsudo\b/, 'run as root'],
-  [/\bchmod\s+-R\s+777/, 'make files world-writable'],
+  [/\bchmod\s+(-[A-Za-z]+\s+)*777/, 'make files world-writable'],
   [/\bnpm\s+publish\b|\bcargo\s+publish\b/, 'publish a package'],
 ]
 
@@ -356,13 +543,18 @@ function short(text, limit) {
 
 function lineCount(text) {
   if (!text) return 0
-  return String(text).split('\n').length
+  return String(text).replace(/\n$/, '').split('\n').length
+}
+
+function lines(n) {
+  return n + (n === 1 ? ' line' : ' lines')
 }
 
 function range(offset, limit) {
-  if (typeof offset !== 'number' && typeof limit !== 'number') return ''
+  const hasLimit = typeof limit === 'number' && limit > 0
+  if (typeof offset !== 'number' && !hasLimit) return ''
   const from = typeof offset === 'number' ? offset : 1
-  const to = typeof limit === 'number' ? from + limit - 1 : ''
+  const to = hasLimit ? from + limit - 1 : ''
   return ':' + from + (to ? '-' + to : '')
 }
 
@@ -374,8 +566,9 @@ function shortPath(path) {
     // /Users/<user>/rest… → ~/rest…
     return parts.length > 3 ? '~/' + parts.slice(3).join('/') : clean
   }
-  const cwd = clean.lastIndexOf('/')
-  return clean.length > 60 ? '…' + clean.slice(cwd) : clean
+  if (clean.length <= 60) return clean
+  const cut = clean.lastIndexOf('/')
+  return '…' + clean.slice(cut >= 0 ? cut : Math.max(0, clean.length - 24))
 }
 
 function hostOf(url) {

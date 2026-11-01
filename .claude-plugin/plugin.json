@@ -1,6 +1,6 @@
 {
   "name": "intent-lens",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows, in plain language, what each tool call is about to do — before it runs",
   "author": { "name": "Dhananjay" }
 }
