@@ -3,20 +3,60 @@
  *
  * Claude Code calls `register` once when the plugin loads and passes `on`.
  * Every hook receives ($, e, next): the mods API, the frozen event, and the
- * continuation.
+ * continuation. Nothing here imports npm packages, reads the filesystem, or
+ * calls a model, so it costs no tokens and `claude plugin validate` can list
+ * everything it does.
  */
 
+// How many intents `/intent-log` remembers per session
+const MAX_HISTORY = 50
 // Longest detail shown in the band, before the terminal width trims it further
 const DETAIL_LIMIT = 110
 
+// Module state. Hot reload runs `register` again, so this resets on save;
+// the on/off switch is kept in $.store so it survives reloads and sessions.
+let enabled = true
 let lastIntent = null
+let history = []
+let seq = 0
 
 export function register(on) {
+  // ---------------------------------------------------------------- session
+
+  on('session.start', async ($, e, next) => {
+    // Register the commands first: if the store is unavailable on this
+    // Claude Code build, the commands still exist.
+    await $.command.register({
+      name: 'intent',
+      description: 'Toggle the intent line above the prompt: /intent [on|off|log|clear]',
+    })
+    await $.command.register({
+      name: 'intent-log',
+      description: 'List what Claude has done this session, in plain language',
+    })
+
+    try {
+      const saved = await $.store.get('enabled')
+      if (typeof saved === 'boolean') enabled = saved
+    } catch {
+      // No store on this build: the in-memory default stands.
+    }
+
+    return next(e)
+  })
+
+  // ------------------------------------------------------------- every tool
+
   // Fires for every tool, including subagent and MCP calls. Observing only:
   // it runs before the tool, then passes the event on unchanged.
   on('tool.call', async ($, e, next) => {
     const item = intentOf(e)
+    seq += 1
+    item.n = seq
+
     lastIntent = item
+    history.push(item)
+    if (history.length > MAX_HISTORY) history.shift()
 
     // Ask for a redraw so the band shows this intent before the tool runs.
     try {
@@ -27,7 +67,7 @@ export function register(on) {
 
     // Warn about calls that can destroy work. Best effort: a missing toast
     // API must not stop the tool.
-    if (item.risk) {
+    if (enabled && item.risk) {
       try {
         $.ui.toast('⚠ ' + item.tool + ' will ' + item.risk, { timeoutMs: 6000 })
       } catch {
@@ -35,15 +75,25 @@ export function register(on) {
       }
     }
 
-    return next(e)
+    const result = await next(e)
+
+    // Record the outcome for /intent-log, then return the result untouched so
+    // Claude reads exactly what the tool produced.
+    if (result && result.deny) item.outcome = 'denied'
+    else if (result && result.isError) item.outcome = 'failed'
+    else item.outcome = 'ok'
+    return result
   })
+
+  // ---------------------------------------------------------------- display
 
   // The band directly above the prompt. Drawn only while Claude is working.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const working = !e.props || e.props.isWorking !== false
-    if (!lastIntent || !working) return next(e)
+    if (!enabled || !lastIntent || !working) return next(e)
 
     const columns = (e.props && e.props.bodyColumns) || 80
+    const { Box, Text } = $.ui.resolve(e)
 
     // Keep Claude Code's own band content below ours.
     const theirs = await next(e)
@@ -53,7 +103,53 @@ export function register(on) {
       children: [bandLine($, e, lastIntent, columns), theirs],
     })
   })
+
+  // --------------------------------------------------------------- commands
+
+  on('command.run', { command: 'intent' }, async ($, e) => {
+    const arg = String(e.args || '').trim().toLowerCase()
+
+    if (arg === 'log' || arg === 'history') return { text: logText() }
+    if (arg === 'clear') {
+      history = []
+      seq = 0
+      lastIntent = null
+      return { text: 'history cleared.' }
+    }
+
+    if (arg === 'on') enabled = true
+    else if (arg === 'off') enabled = false
+    else if (arg === 'toggle') enabled = !enabled
+    else {
+      return {
+        text:
+          'intent line is ' +
+          (enabled ? 'on' : 'off') +
+          '. Use /intent on, off, toggle, log, or clear.',
+      }
+    }
+
+    try {
+      await $.store.set('enabled', enabled)
+    } catch {
+      // Not persisted, but it still applies to this session.
+    }
+
+    try {
+      $.ui.invalidate('ui.render')
+    } catch {
+      // No UI to redraw.
+    }
+
+    return {
+      text: 'intent line is ' + (enabled ? 'on' : 'off') + '.',
+    }
+  })
+
+  on('command.run', { command: 'intent-log' }, async () => ({ text: logText() }))
 }
+
+// ---------------------------------------------------------------- rendering
 
 function bandLine($, e, item, columns) {
   const { Box, Text } = $.ui.resolve(e)
@@ -73,6 +169,20 @@ function bandLine($, e, item, columns) {
       }),
     ],
   })
+}
+
+function logText() {
+  if (!history.length) return 'no tool calls recorded yet.'
+
+  return history
+    .slice(-20)
+    .map((item) => {
+      const tick =
+        item.outcome === 'denied' ? '✗' : item.outcome === 'failed' ? '✗' : '✓'
+      const risk = item.risk ? '  ⚠ ' + item.risk : ''
+      return tick + ' ' + String(item.n).padStart(2, ' ') + '. ' + item.tool + ' · ' + item.detail + risk
+    })
+    .join('\n')
 }
 
 // ---------------------------------------------------------------- heuristics
