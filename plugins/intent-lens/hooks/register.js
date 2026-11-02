@@ -29,10 +29,12 @@ const MODEL_RULES =
 
 // Tools this mod already phrases well without a model.
 const KNOWN_TOOLS = new Set([
-  'Bash', 'BashOutput', 'KillBash', 'KillShell', 'Read', 'Write', 'Edit',
-  'MultiEdit', 'NotebookEdit', 'Grep', 'Glob', 'WebFetch', 'WebSearch', 'Task',
-  'Agent', 'TodoWrite', 'AskUserQuestion', 'ExitPlanMode', 'Skill',
-  'SlashCommand', 'TaskOutput',
+  'Bash', 'PowerShell', 'BashOutput', 'KillBash', 'KillShell', 'Read', 'Write', 'Edit',
+  'MultiEdit', 'NotebookEdit', 'NotebookRead', 'Grep', 'Glob', 'WebFetch', 'WebSearch',
+  'Task', 'Agent', 'TodoWrite', 'AskUserQuestion', 'ExitPlanMode', 'EnterPlanMode',
+  'Skill', 'SlashCommand', 'TaskOutput', 'LSP', 'TaskCreate', 'TaskUpdate', 'TaskList',
+  'TaskGet', 'TaskStop', 'EnterWorktree', 'ExitWorktree', 'SendMessage', 'ToolSearch',
+  'Monitor', 'CronCreate', 'CronList', 'CronDelete',
 ])
 
 // Module state. Hot reload runs `register` again, so this resets on save;
@@ -117,6 +119,10 @@ export function register(on) {
   // Fires for every tool, including subagent and MCP calls. Observing only:
   // it runs before the tool, then passes the event on unchanged.
   on('tool.call', async ($, e, next) => {
+    // A subagent's calls would fight the main thread for one line, and the
+    // research on approval fatigue says extra chrome is the enemy. Stay quiet.
+    if (e.agentId) return next(e)
+
     const raw = String(e.tool || 'Tool')
     const item = intentOf(raw, e)
     seq += 1
@@ -498,11 +504,12 @@ function intentOf(raw, e) {
 }
 
 // Turn a pipeline into the verbs of its stages: `fetch → pick fields → count`.
-// Quote-aware, so a `|` inside a jq program is not a new stage.
+// Quote-aware, so a `|` inside a jq program is not a new stage. Two-stage
+// chains read fine without a decode, so they stay one line.
 function stagesOf(command) {
   if (!command) return []
   const segments = splitPipeline(command)
-  if (segments.length < 2) return []
+  if (segments.length < 3) return []
   return segments.slice(0, 8).map(stageVerb)
 }
 
@@ -551,28 +558,36 @@ function stageVerb(segment) {
   switch (head) {
     case 'curl':
     case 'wget':
-      return 'fetch'
+      return /(^|\s)(-O|--output)\b/.test(segment) ? 'download' : 'fetch'
     case 'jq':
     case 'yq':
-      return 'pick fields'
+      return jqVerb(segment)
     case 'sort':
+      if (/-[a-z]*u/.test(segment)) return 'dedupe'
+      if (/-[a-z]*k/.test(segment)) return 'sort by column'
       return /-[a-z]*[rn]/.test(segment) ? 'rank' : 'sort'
     case 'uniq':
+      if (/-[a-z]*d/.test(segment)) return 'keep duplicates'
       return /-[a-z]*c/.test(segment) ? 'count' : 'dedupe'
     case 'head':
       return count ? 'top ' + count : 'first rows'
     case 'tail':
       return count ? 'last ' + count : 'last rows'
     case 'awk':
+      if (/\bsum\b|\+=/.test(segment)) return 'sum'
+      if (/\bNR\b/.test(segment)) return 'format rows'
       return 'compute'
     case 'grep':
     case 'rg':
-      return 'filter'
+    case 'ag':
+      return /-[a-z]*c/.test(segment) ? 'count matches' : 'filter'
     case 'xargs':
       return 'for each'
     case 'wc':
       return 'count lines'
     case 'find':
+      if (/-delete\b/.test(segment)) return 'delete matched'
+      if (/-exec\b/.test(segment)) return 'run per file'
       return 'find files'
     case 'cut':
       return 'keep columns'
@@ -587,11 +602,27 @@ function stageVerb(segment) {
     case 'tee':
       return 'write out'
     case 'node':
+    case 'bun':
+    case 'deno':
     case 'python':
     case 'python3':
       return 'run script'
     case 'git':
       return 'git ' + (words[1] || '')
+    case 'gh':
+      return 'query GitHub'
+    case 'docker':
+    case 'podman':
+      return 'container'
+    case 'kubectl':
+    case 'helm':
+      return 'query cluster'
+    case 'psql':
+    case 'mysql':
+    case 'sqlite3':
+      return 'query database'
+    case 'terraform':
+      return 'apply infra'
     case 'rm':
       return 'delete'
     case 'mkdir':
@@ -605,9 +636,77 @@ function stageVerb(segment) {
     case 'pnpm':
     case 'yarn':
       return 'npm ' + (words[1] || '')
+    case 'make':
+      return 'build'
+    case 'cargo':
+      return 'build Rust'
+    case 'go':
+      return 'build Go'
+    case 'du':
+      return 'measure sizes'
+    case 'df':
+      return 'check disk'
+    case 'tar':
+      return 'archive'
+    case 'unzip':
+      return 'unpack'
+    case 'ssh':
+      return 'shell into host'
+    case 'scp':
+      return 'copy to host'
+    case 'ps':
+      return 'list processes'
+    case 'kill':
+    case 'pkill':
+      return 'stop process'
+    case 'diff':
+      return 'compare files'
+    case 'nl':
+      return 'number lines'
+    case 'column':
+      return 'align columns'
+    case 'lsof':
+      return 'list open files'
+    case 'watch':
+      return 'watch repeatedly'
+    case 'stat':
+      return 'file details'
+    case 'file':
+      return 'file type'
+    case 'md5':
+    case 'shasum':
+    case 'sha256sum':
+      return 'hash'
+    case 'pwd':
+      return 'print folder'
+    case 'whoami':
+      return 'who am I'
+    case 'date':
+      return 'date'
+    case 'sleep':
+      return 'wait'
+    case 'env':
+      return 'show env'
+    case 'export':
+      return 'set env'
+    case 'source':
+      return 'load script'
+    case 'which':
+    case 'command':
+      return 'locate'
     default:
       return head || 'run'
   }
+}
+
+// Read a jq program for what it does to the rows, not just that it is jq.
+function jqVerb(segment) {
+  if (/\bgroup_by\s*\(/.test(segment)) return 'group'
+  if (/\bselect\s*\(/.test(segment)) return 'filter'
+  if (/\bmap\s*\(/.test(segment)) return 'map'
+  if (/\blength\b/.test(segment)) return 'count'
+  if (/@(tsv|csv|json)/.test(segment)) return 'format rows'
+  return 'pick fields'
 }
 
 function displayTool(tool) {
@@ -621,7 +720,8 @@ function displayTool(tool) {
 
 function describe(tool, e) {
   switch (tool) {
-    case 'Bash': {
+    case 'Bash':
+    case 'PowerShell': {
       const cmd = oneLine(String(e.command || ''))
       const why = typeof e.description === 'string' ? oneLine(e.description) : ''
       // The description is the intent; the pipeline is what the tool row is for.
@@ -630,9 +730,11 @@ function describe(tool, e) {
     }
 
     case 'BashOutput':
+      return 'read background output'
+
     case 'KillBash':
     case 'KillShell':
-      return 'check on a background shell'
+      return 'stop a background shell'
 
     case 'Read': {
       const at = range(e.offset, e.limit)
@@ -673,8 +775,12 @@ function describe(tool, e) {
         (e.path ? ' under ' + shortPath(e.path) : '')
       )
 
-    case 'WebFetch':
-      return hostOf(String(e.url || ''))
+    case 'WebFetch': {
+      const host = hostOf(String(e.url || ''))
+      const why = typeof e.prompt === 'string' ? short(oneLine(e.prompt), 45) : ''
+      // The prompt is why Claude is fetching; it explains more than the host.
+      return why ? host + ' — ' + why : host
+    }
     case 'WebSearch':
       return '"' + short(String(e.query || ''), 70) + '" on the web'
 
@@ -709,6 +815,50 @@ function describe(tool, e) {
     case 'TaskOutput':
       return 'read a background task result'
 
+    case 'NotebookRead':
+      return 'notebook ' + (e.notebook_path ? shortPath(e.notebook_path) : 'a notebook')
+
+    case 'LSP':
+      return (
+        (e.operation ? String(e.operation) + ' ' : '') +
+        (e.file_path ? shortPath(e.file_path) : 'a file') +
+        (typeof e.line === 'number' ? ':' + e.line : '')
+      )
+
+    case 'TaskCreate':
+      return 'add a task' + (typeof e.subject === 'string' ? ': ' + short(oneLine(e.subject), 60) : '')
+    case 'TaskUpdate':
+      return 'update task' + (e.taskId ? ' ' + e.taskId : '') + (e.status ? ' → ' + e.status : '')
+    case 'TaskList':
+      return 'list the tasks'
+    case 'TaskGet':
+      return 'read task' + (e.taskId ? ' ' + e.taskId : '')
+    case 'TaskStop':
+      return 'stop task' + (e.taskId ? ' ' + e.taskId : '')
+
+    case 'EnterPlanMode':
+      return 'switch to plan mode'
+    case 'EnterWorktree':
+      return 'work in a new worktree' + (e.name ? ' — ' + e.name : '')
+    case 'ExitWorktree':
+      return 'leave the worktree'
+
+    case 'SendMessage':
+      return 'message ' + (e.to ? short(String(e.to), 40) : 'another session')
+
+    case 'ToolSearch':
+      return 'search the tool list for "' + short(String(e.query || ''), 50) + '"'
+
+    case 'Monitor':
+      return 'watch ' + short(oneLine(String(e.description || e.command || 'for changes')), 60)
+
+    case 'CronCreate':
+      return 'schedule a job' + (e.cron ? ' (' + e.cron + ')' : '')
+    case 'CronList':
+      return 'list scheduled jobs'
+    case 'CronDelete':
+      return 'delete a scheduled job'
+
     default:
       return generic(e)
   }
@@ -739,6 +889,7 @@ const RISK_RULES = [
     /\brm\b(?=[^\n]*(\s-[A-Za-z]*[rR][A-Za-z]*|\s--recursive))(?=[^\n]*(\s-[A-Za-z]*[fF][A-Za-z]*|\s--force))/,
     'delete files recursively',
   ],
+  [/\bfind\b[^\n]*\s-delete\b/, 'delete matched files'],
   [/\bgit\s+reset\s+--hard\b/, 'discard commits and uncommitted work'],
   [
     /\bgit\s+push\b[^\n]*(--force(-with-lease)?|\s-f\b|\s\+\S)/,

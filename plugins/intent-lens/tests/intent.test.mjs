@@ -315,6 +315,7 @@ function check(name, actual, expected) {
     'rm --recursive --force dist',
     'git push origin +main',
     'chmod 777 -R .',
+    "find . -name '*.tmp' -delete",
   ]
   for (const command of flagged) {
     const run = await fire(mod, { tool: 'Bash', command })
@@ -422,6 +423,48 @@ function check(name, actual, expected) {
     (await band(mod)).split('\n')[1],
     '       3 steps · fetch → pick fields → top 3',
   )
+}
+
+// ---------------------------------------------------------------------------
+// More tools, and quieter output
+// ---------------------------------------------------------------------------
+{
+  const mod = await loadMod()
+  await band(mod)
+
+  // A subagent's calls do not take over the main line
+  await fire(mod, { tool: 'Bash', command: 'ls', description: 'list files', agentId: 'a1' })
+  check('subagent calls are ignored', await band(mod), '(nothing)')
+
+  // A two-stage pipe reads fine without a decode
+  await fire(mod, { tool: 'Bash', command: 'ps aux | grep node', description: 'Find the dev server' })
+  check('two-stage pipes stay one line', await band(mod), '▸ Bash Find the dev server')
+
+  // New stage verbs, and a jq program read for what it does
+  await fire(mod, {
+    tool: 'Bash',
+    command: `gh pr list --json number,title | jq -r '.[] | select(.number > 10) | .title' | sort | head -5`,
+    description: 'List recent PR titles',
+  })
+  check(
+    'gh and jq are decoded',
+    (await band(mod)).split('\n')[1],
+    '       4 steps · query GitHub → filter → sort → top 5',
+  )
+
+  // More tools get their own phrasing
+  await fire(mod, { tool: 'PowerShell', command: 'Get-ChildItem', description: 'list the folder' })
+  check('PowerShell reads like Bash', await band(mod), '▸ PowerShell list the folder')
+
+  await fire(mod, {
+    tool: 'WebFetch',
+    url: 'https://example.com/docs',
+    prompt: 'extract the rate limit table',
+  })
+  check('WebFetch says why', await band(mod), '▸ WebFetch example.com — extract the rate limit table')
+
+  await fire(mod, { tool: 'TaskCreate', subject: 'write the migration' })
+  check('TaskCreate is named', await band(mod), '▸ TaskCreate add a task: write the migration')
 }
 
 // ---------------------------------------------------------------------------
