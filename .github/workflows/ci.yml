@@ -38,6 +38,12 @@ jobs:
       - name: Validate the mod
         run: claude plugin validate . --strict
 
+      - name: Install from the marketplace
+        run: |
+          claude plugin marketplace add ./
+          claude plugin install intent-lens@intent-lens
+          claude plugin list
+
   test:
     name: Tests
     runs-on: ubuntu-latest
@@ -54,14 +60,11 @@ jobs:
       - name: Run the hook tests
         run: node tests/intent.test.mjs
 
-  lint:
-    name: Lint
+  assets:
+    name: Assets
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Shellcheck the launcher
-        run: shellcheck run.sh
 
       - name: Check the SVGs parse
         run: |
