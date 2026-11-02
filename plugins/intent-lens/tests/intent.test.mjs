@@ -40,6 +40,9 @@ async function loadMod() {
     intent: hooks.get('command.run{"command":"intent"}'),
     log: hooks.get('command.run{"command":"intent-log"}'),
     session: hooks.get('session.start'),
+    turnStart: hooks.get('turn.start'),
+    turnComplete: hooks.get('turn.complete'),
+    promptSubmit: hooks.get('prompt.submit'),
   }
 }
 
@@ -352,6 +355,32 @@ function check(name, actual, expected) {
     (await mod.intent($, { args: '' })).text,
     'intent line is off, engine auto. Use /intent on, off, toggle, mode, log, or clear.',
   )
+}
+
+// ---------------------------------------------------------------------------
+// An intent never outlives its turn
+// ---------------------------------------------------------------------------
+{
+  const mod = await loadMod()
+  await band(mod)
+
+  await fire(mod, { tool: 'Bash', command: 'ls' })
+  check('intent shows while the turn runs', await band(mod), '▸ Bash run ls')
+
+  await mod.turnComplete(dollar().$, deepFreeze({}), async () => undefined)
+  check('a finished turn clears the band', await band(mod), '(nothing)')
+
+  await fire(mod, { tool: 'Bash', command: 'pwd' })
+  await mod.turnComplete(dollar().$, deepFreeze({ agentId: 'agent-1' }), async () => undefined)
+  check('a subagent turn leaves it alone', await band(mod), '▸ Bash run pwd')
+
+  await fire(mod, { tool: 'Bash', command: 'date' })
+  await mod.promptSubmit(dollar().$, deepFreeze({ text: 'hi' }), async () => undefined)
+  check('a new prompt clears the band', await band(mod), '(nothing)')
+
+  await fire(mod, { tool: 'Bash', command: 'whoami' })
+  await mod.turnStart(dollar().$, deepFreeze({ turnId: 't1' }), async () => undefined)
+  check('a new turn clears the band', await band(mod), '(nothing)')
 }
 
 // ---------------------------------------------------------------------------

@@ -91,6 +91,27 @@ export function register(on) {
     return next(e)
   })
 
+  // ---------------------------------------------------------------- lifecycle
+
+  // The band belongs to the turn in flight. Clear it at both ends, so an
+  // intent can never outlive the call it describes.
+  on('turn.start', async ($, e, next) => {
+    clearIntent($)
+    return next(e)
+  })
+
+  on('turn.complete', async ($, e, next) => {
+    // A subagent's turn ends while the main turn carries on; keep ours.
+    if (!e.agentId) clearIntent($)
+    return next(e)
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    // A new prompt starts over, even if the last turn never completed.
+    clearIntent($)
+    return next(e)
+  })
+
   // ------------------------------------------------------------- every tool
 
   // Fires for every tool, including subagent and MCP calls. Observing only:
@@ -381,6 +402,16 @@ function engineHint(which) {
   if (which === 'local') return 'free and instant, no model calls.'
   if (which === 'model') return 'Claude phrases every call; a few tokens each.'
   return 'local lines, upgraded by Claude for edits and unknown tools.'
+}
+
+// Forget the last intent and ask for one redraw.
+function clearIntent($) {
+  lastIntent = null
+  try {
+    $.ui.invalidate('ui.render')
+  } catch {
+    // No UI to redraw.
+  }
 }
 
 // ---------------------------------------------------------------- rendering

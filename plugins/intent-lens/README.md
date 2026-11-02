@@ -147,14 +147,14 @@ plugins/intent-lens/
 
 ```bash
 node tests/intent.test.mjs
-# 42 pass, 0 fail
+# 47 pass, 0 fail
 ```
 
 Run it from this folder. The repository's CI runs the same tests and `claude plugin validate --strict` on every push, then installs the plugin from the marketplace entry to prove that path works too.
 
 ## Limitations
 
-- The band shows the **most recent** call, not a queue of parallel ones.
+- The band shows the **most recent** call, not a queue of parallel ones, and it clears when the turn ends.
 - Nothing is drawn in headless runs, where there is no UI.
 - The model line is a hint about what Claude *says* it is doing; the arguments are the ground truth.
 - The band is a shared surface: it sits above whatever other mods draw, and the user can collapse it with `Ctrl+X Ctrl+A`.
