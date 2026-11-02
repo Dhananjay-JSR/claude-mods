@@ -9,6 +9,7 @@
 <p align="center"><sub>An unofficial project. Not affiliated with or endorsed by Anthropic.</sub></p>
 
 <p align="center">
+  <a href="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml/badge.svg"></a>
   <img alt="Claude Code 2.1.287+" src="https://img.shields.io/badge/Claude_Code-2.1.287%2B-D97757?style=flat-square">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1A1614?style=flat-square">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5FC4D4?style=flat-square">
@@ -171,6 +172,8 @@ intent-lens/
 node tests/intent.test.mjs
 # 42 pass, 0 fail
 ```
+
+CI runs those tests and `claude plugin validate --strict` on every push, against both Claude Code 2.1.287 and the latest release.
 
 ## Limitations
 

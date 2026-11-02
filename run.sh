@@ -3,7 +3,7 @@
 # Mods are on by default from Claude Code 2.1.287, so no flag is needed.
 set -e
 
-here=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$(dirname "$0")" || exit 1; pwd)
 need="2.1.287"
 
 have=$(claude --version 2>/dev/null | awk '{print $1}')
