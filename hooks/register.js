@@ -14,7 +14,7 @@ const DETAIL_LIMIT = 110
 
 // The small, fast model used to phrase an intent. Costs a few tokens per call.
 const MODEL = 'haiku'
-// The request has no timeout option on 2.1.273, and the tool call waits for
+// Some builds' requests have no timeout option, and the tool call waits for
 // this answer, so the mod stops waiting here and keeps the local line.
 const MODEL_TIMEOUT_MS = 1500
 const MODEL_MAX_TOKENS = 60
@@ -278,8 +278,8 @@ async function modelIntent($, e, item) {
   }
 }
 
-// Claude Code 2.1.273 resolves to a plain string. Later builds resolve to
-// { isAnswered, text, reason }, so read both contracts.
+// Some builds resolve to a plain string; others resolve to
+// { isAnswered, text, reason }. Read both contracts.
 function answerText(answer) {
   if (typeof answer === 'string') return answer
   if (answer && typeof answer === 'object' && answer.isAnswered) {
