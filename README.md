@@ -6,11 +6,13 @@
 
 <p align="center"><em>See what Claude is about to do — before it does it.</em></p>
 
+<p align="center"><sub>The first mod in the <a href="https://github.com/Dhananjay-JSR/claude-mods">claude-mods</a> marketplace.</sub></p>
+
 <p align="center"><sub>An unofficial project. Not affiliated with or endorsed by Anthropic.</sub></p>
 
 <p align="center">
-  <a href="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="GitHub stars" src="https://img.shields.io/github/stars/Dhananjay-JSR/intent-lens?style=flat-square&color=1A1614">
+  <a href="https://github.com/Dhananjay-JSR/claude-mods/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Dhananjay-JSR/claude-mods/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="GitHub stars" src="https://img.shields.io/github/stars/Dhananjay-JSR/claude-mods?style=flat-square&color=1A1614">
   <img alt="Claude Mod" src="https://img.shields.io/badge/Claude_Mod-function_hooks-D97757?style=flat-square">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1A1614?style=flat-square">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5FC4D4?style=flat-square">
@@ -27,8 +29,8 @@ Claude Code shows you a tool *row* after Claude has already decided to act. `int
 ## Quick start
 
 ```
-/plugin marketplace add Dhananjay-JSR/intent-lens
-/plugin install intent-lens --marketplace Dhananjay-JSR/intent-lens
+/plugin marketplace add Dhananjay-JSR/claude-mods
+/plugin install intent-lens --marketplace Dhananjay-JSR/claude-mods
 ```
 
 Then run `/intent` to confirm it loaded. No clone, no build step.
@@ -68,18 +70,18 @@ Requires a current Claude Code (`brew install --cask claude-code`).
 
 ### From the public marketplace
 
-In a Claude Code session:
+This repository is the `claude-mods` marketplace, and `intent-lens` is its first mod. In a Claude Code session:
 
 ```
-/plugin marketplace add Dhananjay-JSR/intent-lens
-/plugin install intent-lens --marketplace Dhananjay-JSR/intent-lens
+/plugin marketplace add Dhananjay-JSR/claude-mods
+/plugin install intent-lens --marketplace Dhananjay-JSR/claude-mods
 ```
 
 Or from your shell:
 
 ```bash
-claude plugin marketplace add Dhananjay-JSR/intent-lens
-claude plugin install intent-lens@intent-lens
+claude plugin marketplace add Dhananjay-JSR/claude-mods
+claude plugin install intent-lens@claude-mods
 ```
 
 Installs are cached. To take a newer version later:
@@ -91,13 +93,13 @@ claude plugin update intent-lens
 ### For one session
 
 ```bash
-claude --plugin-dir /path/to/intent-lens
+claude --plugin-dir /path/to/claude-mods/plugins/intent-lens
 ```
 
 To load it without typing the flag, alias it in your shell:
 
 ```bash
-alias claude-lens='claude --plugin-dir /path/to/intent-lens'
+alias claude-lens='claude --plugin-dir /path/to/claude-mods/plugins/intent-lens'
 ```
 
 To load it in every session, add the directory to `CLAUDE_CODE_PLUGIN_DIRS` (`:`-separated).
@@ -158,16 +160,16 @@ A Claude Mod runs inside Claude Code's own process, so the rules are strict:
 ## Layout
 
 ```
-intent-lens/
-├── .claude-plugin/
-│   ├── marketplace.json         the catalog that /plugin marketplace add reads
-│   └── plugin.json              the plugin manifest
-├── hooks/hooks.json             {"modules": ["./register.js"]} — makes it a mod
-├── hooks/register.js            hooks, both engines, risk rules
-├── tests/intent.test.mjs        hooks run against a stubbed API
-├── assets/logo.svg              the mark
-├── assets/demo.svg              the band, illustrated
-└── .github/workflows/ci.yml     validate, test, assets
+claude-mods/
+├── .claude-plugin/marketplace.json   the catalog /plugin marketplace add reads
+├── plugins/intent-lens/
+│   ├── .claude-plugin/plugin.json    the plugin manifest
+│   ├── hooks/hooks.json              {"modules": ["./register.js"]} — makes it a mod
+│   ├── hooks/register.js             hooks, both engines, risk rules
+│   └── tests/intent.test.mjs         hooks run against a stubbed API
+├── assets/logo.svg                   the mark
+├── assets/demo.svg                   the band, illustrated
+└── .github/workflows/ci.yml          validate, test, assets
 ```
 
 ## Tests
@@ -175,7 +177,7 @@ intent-lens/
 `claude plugin test` runs `.test.ts` files inside a session; these tests are plain Node instead, so they need no session, network, or credentials. They load the hooks module from a temporary copy and fire every hook — including `session.start` — against a stubbed mods API. Each test gets a fresh copy of the module, so one test's mode, history, or UI flag can never leak into the next.
 
 ```bash
-node tests/intent.test.mjs
+node plugins/intent-lens/tests/intent.test.mjs
 # 42 pass, 0 fail
 ```
 
