@@ -173,6 +173,7 @@ export function register(on) {
     } catch (error) {
       // The chain failed; record it before the error continues outward.
       item.outcome = 'failed'
+      if (lastIntent === item) clearIntent($)
       throw error
     }
 
@@ -183,6 +184,10 @@ export function register(on) {
     if (result && (result.deny || (inner && inner.deny))) item.outcome = 'denied'
     else if (result && (result.isError || (inner && inner.isError))) item.outcome = 'failed'
     else item.outcome = 'ok'
+
+    // The call is over. The line is for a pending call, not history, so drop
+    // it now unless a newer call already took the slot.
+    if (lastIntent === item) clearIntent($)
     return result
   })
 

@@ -107,11 +107,16 @@ async function fire(mod, event, options = {}) {
   const { $, log, saved } = dollar(options)
   const result = options.result ?? { ok: true }
   let calls = 0
+  let during = '(not peeked)'
   const out = await mod.tool($, deepFreeze({ ...event }), async () => {
     calls += 1
+    // Let a test fire another event while this call is still pending.
+    if (options.during) await options.during()
+    // What the band shows while the call is still pending.
+    during = await band(mod)
     return result
   })
-  return { log, saved, out, result, calls }
+  return { log, saved, out, result, calls, during }
 }
 
 // The whole tree the band would draw right now, one line per row.
@@ -203,7 +208,7 @@ function check(name, actual, expected) {
     limit: 11,
   })
   check('read stays local', run.log.requests.length, 0)
-  check('read band', await band(mod), '▸ Read ~/app/src/auth.ts:10-20')
+  check('read band', run.during, '▸ Read ~/app/src/auth.ts:10-20')
 
   run = await fire(
     mod,
@@ -216,7 +221,7 @@ function check(name, actual, expected) {
   check('request keys', Object.keys(run.log.requests[0]).sort(), ['maxTokens', 'model', 'prompt'])
   check('prompt names the tool', run.log.requests[0].prompt.includes('Tool: Edit'), true)
   check('prompt carries the draft', run.log.requests[0].prompt.includes('Draft: '), true)
-  check('edit band', await band(mod), '✦ Edit Add a null guard to the token parser')
+  check('edit band', run.during, '✦ Edit Add a null guard to the token parser')
 
   // A model that does not answer falls back to the local line
   run = await fire(
@@ -225,7 +230,7 @@ function check(name, actual, expected) {
     { answer: { isAnswered: false, reason: 'timeout' } },
   )
   check('fallback tried the model', run.log.requests.length, 1)
-  check('fallback band', await band(mod), '▸ Edit ~/app/src/a.ts (3 lines → 1 line)')
+  check('fallback band', run.during, '▸ Edit ~/app/src/a.ts (3 lines → 1 line)')
 
   // Newer builds resolve to { isAnswered, text }; both contracts are read
   run = await fire(
@@ -233,7 +238,7 @@ function check(name, actual, expected) {
     { tool: 'Write', file_path: '/Users/x/app/src/b.ts', content: 'x' },
     { answer: { isAnswered: true, text: 'Write the migration stub' } },
   )
-  check('accepts the object contract', await band(mod), '✦ Write Write the migration stub')
+  check('accepts the object contract', run.during, '✦ Write Write the migration stub')
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +273,7 @@ function check(name, actual, expected) {
   })
   check('risk skips the model', run.log.requests.length, 0)
   check('risk toast', run.log.toasts, ['⚠ Bash will delete files recursively'])
-  check('risk band', await band(mod), '⚠ Bash clean up')
+  check('risk band', run.during, '⚠ Bash clean up')
 }
 
 {
@@ -299,7 +304,7 @@ function check(name, actual, expected) {
     { answer: 'Check how the cache key is built' },
   )
   check('model mode phrases a read', run.log.requests.length, 1)
-  check('model mode band', await band(mod), '✦ Read Check how the cache key is built')
+  check('model mode band', run.during, '✦ Read Check how the cache key is built')
 
   const bad = await mod.intent(dollar().$, { args: 'mode fastest' })
   check('unknown engine refused', bad.text, 'engine is model. Use /intent mode local, auto, or model.')
@@ -347,7 +352,7 @@ function check(name, actual, expected) {
     },
   )
   check('slow model asked once', run.log.requests.length, 1)
-  check('slow model falls back', await band(mod), '▸ Edit ~/a.ts (1 line → 1 line)')
+  check('slow model falls back', run.during, '▸ Edit ~/a.ts (1 line → 1 line)')
 }
 
 // ---------------------------------------------------------------------------
@@ -380,14 +385,14 @@ function check(name, actual, expected) {
   })
   check(
     'bash shows only the description',
-    (await band(mod)).split('\n')[0],
+    described.during.split('\n')[0],
     '▸ Bash Count the top five languages across your public repos',
   )
   check('a described command skips the model', described.log.requests.length, 0)
 
   const bare = await fire(mod, { tool: 'Bash', command: 'ls -la | wc -l' }, { answer: 'Count the files here' })
   check('an undescribed command asks the model', bare.log.requests.length, 1)
-  check('the model words the undescribed command', (await band(mod)).split('\n')[0], '✦ Bash Count the files here')
+  check('the model words the undescribed command', bare.during.split('\n')[0], '✦ Bash Count the files here')
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +402,7 @@ function check(name, actual, expected) {
   const mod = await loadMod()
   await band(mod)
 
-  await fire(mod, {
+  const stages = await fire(mod, {
     tool: 'Bash',
     command:
       'curl -s "https://api.github.com/users/x/repos?per_page=100" | jq -r ".[].language // empty" | sort | uniq -c | sort -rn | head -5',
@@ -405,7 +410,7 @@ function check(name, actual, expected) {
   })
   check(
     'the stage line follows the description',
-    await band(mod),
+    stages.during,
     [
       '▸ Bash Count the top five languages across your repos',
       '       6 steps · fetch → extract values → sort → count repeats → sort by number → top 5',
@@ -413,14 +418,14 @@ function check(name, actual, expected) {
   )
 
   // A pipe inside a quoted jq program is not a new stage
-  await fire(mod, {
+  const quoted = await fire(mod, {
     tool: 'Bash',
     command: `curl -s https://example.com/data.json | jq -r '.[] | .name' | head -3`,
     description: 'List names',
   })
   check(
     'quoted pipes are not stages',
-    (await band(mod)).split('\n')[1],
+    quoted.during.split('\n')[1],
     '       3 steps · fetch → extract values → top 3',
   )
 }
@@ -437,34 +442,34 @@ function check(name, actual, expected) {
   check('subagent calls are ignored', await band(mod), '(nothing)')
 
   // A two-stage pipe reads fine without a decode
-  await fire(mod, { tool: 'Bash', command: 'ps aux | grep node', description: 'Find the dev server' })
-  check('two-stage pipes stay one line', await band(mod), '▸ Bash Find the dev server')
+  const two = await fire(mod, { tool: 'Bash', command: 'ps aux | grep node', description: 'Find the dev server' })
+  check('two-stage pipes stay one line', two.during, '▸ Bash Find the dev server')
 
   // New stage verbs, and a jq program read for what it does
-  await fire(mod, {
+  const gh = await fire(mod, {
     tool: 'Bash',
     command: `gh pr list --json number,title | jq -r '.[] | select(.number > 10) | .title' | sort | head -5`,
     description: 'List recent PR titles',
   })
   check(
     'gh and jq are decoded',
-    (await band(mod)).split('\n')[1],
+    gh.during.split('\n')[1],
     '       4 steps · query GitHub → keep matching rows → sort → top 5',
   )
 
   // More tools get their own phrasing
-  await fire(mod, { tool: 'PowerShell', command: 'Get-ChildItem', description: 'list the folder' })
-  check('PowerShell reads like Bash', await band(mod), '▸ PowerShell list the folder')
+  const ps = await fire(mod, { tool: 'PowerShell', command: 'Get-ChildItem', description: 'list the folder' })
+  check('PowerShell reads like Bash', ps.during, '▸ PowerShell list the folder')
 
-  await fire(mod, {
+  const wf = await fire(mod, {
     tool: 'WebFetch',
     url: 'https://example.com/docs',
     prompt: 'extract the rate limit table',
   })
-  check('WebFetch says why', await band(mod), '▸ WebFetch example.com — extract the rate limit table')
+  check('WebFetch says why', wf.during, '▸ WebFetch example.com — extract the rate limit table')
 
-  await fire(mod, { tool: 'TaskCreate', subject: 'write the migration' })
-  check('TaskCreate is named', await band(mod), '▸ TaskCreate add a task: write the migration')
+  const tc = await fire(mod, { tool: 'TaskCreate', subject: 'write the migration' })
+  check('TaskCreate is named', tc.during, '▸ TaskCreate add a task: write the migration')
 }
 
 // ---------------------------------------------------------------------------
@@ -474,14 +479,14 @@ function check(name, actual, expected) {
   const mod = await loadMod()
   await band(mod)
   await mod.intent(dollar().$, { args: 'words terse' })
-  await fire(mod, {
+  const terse = await fire(mod, {
     tool: 'Bash',
     command: `curl -s https://example.com/x | jq -r '.[] | .name' | sort | head -3`,
     description: 'List names',
   })
   check(
     'terse words',
-    (await band(mod)).split('\n')[1],
+    terse.during.split('\n')[1],
     '       4 steps · fetch → pick fields → sort → top 3',
   )
 }
@@ -493,23 +498,38 @@ function check(name, actual, expected) {
   const mod = await loadMod()
   await band(mod)
 
-  await fire(mod, { tool: 'Bash', command: 'ls' })
-  check('intent shows while the turn runs', await band(mod), '▸ Bash run ls')
+  const live = await fire(mod, { tool: 'Bash', command: 'ls' })
+  check('intent shows while the call is pending', live.during, '▸ Bash run ls')
+  check('the line goes when the call returns', await band(mod), '(nothing)')
 
-  await mod.turnComplete(dollar().$, deepFreeze({}), async () => undefined)
-  check('a finished turn clears the band', await band(mod), '(nothing)')
+  // A subagent's turn ending must not clear a pending main-thread line
+  const subDone = await fire(
+    mod,
+    { tool: 'Bash', command: 'pwd' },
+    { during: () => mod.turnComplete(dollar().$, deepFreeze({ agentId: 'a-1' }), async () => undefined) },
+  )
+  check('a subagent turn leaves a pending line alone', subDone.during, '▸ Bash run pwd')
 
-  await fire(mod, { tool: 'Bash', command: 'pwd' })
-  await mod.turnComplete(dollar().$, deepFreeze({ agentId: 'agent-1' }), async () => undefined)
-  check('a subagent turn leaves it alone', await band(mod), '▸ Bash run pwd')
+  const prompted = await fire(
+    mod,
+    { tool: 'Bash', command: 'date' },
+    { during: () => mod.promptSubmit(dollar().$, deepFreeze({ text: 'hi' }), async () => undefined) },
+  )
+  check('a new prompt clears a pending line', prompted.during, '(nothing)')
 
-  await fire(mod, { tool: 'Bash', command: 'date' })
-  await mod.promptSubmit(dollar().$, deepFreeze({ text: 'hi' }), async () => undefined)
-  check('a new prompt clears the band', await band(mod), '(nothing)')
+  const turned = await fire(
+    mod,
+    { tool: 'Bash', command: 'whoami' },
+    { during: () => mod.turnStart(dollar().$, deepFreeze({ turnId: 't1' }), async () => undefined) },
+  )
+  check('a new turn clears a pending line', turned.during, '(nothing)')
 
-  await fire(mod, { tool: 'Bash', command: 'whoami' })
-  await mod.turnStart(dollar().$, deepFreeze({ turnId: 't1' }), async () => undefined)
-  check('a new turn clears the band', await band(mod), '(nothing)')
+  const finished = await fire(
+    mod,
+    { tool: 'Bash', command: 'id' },
+    { during: () => mod.turnComplete(dollar().$, deepFreeze({}), async () => undefined) },
+  )
+  check('a finished turn clears a pending line', finished.during, '(nothing)')
 }
 
 // ---------------------------------------------------------------------------
@@ -518,8 +538,8 @@ function check(name, actual, expected) {
 {
   const mod = await loadMod()
   await band(mod)
-  await fire(mod, { tool: 'Write', file_path: '/Users/x/app/src/a.ts', content: 'a\nb\n' })
-  check('trailing newline is not a line', await band(mod), '▸ Write ~/app/src/a.ts (2 lines)')
+  const written = await fire(mod, { tool: 'Write', file_path: '/Users/x/app/src/a.ts', content: 'a\nb\n' })
+  check('trailing newline is not a line', written.during, '▸ Write ~/app/src/a.ts (2 lines)')
 }
 
 console.log(pass + ' pass, ' + fail + ' fail')

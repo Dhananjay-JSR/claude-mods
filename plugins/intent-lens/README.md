@@ -154,14 +154,14 @@ plugins/intent-lens/
 
 ```bash
 node tests/intent.test.mjs
-# 61 pass, 0 fail
+# 62 pass, 0 fail
 ```
 
 Run it from this folder. The repository's CI runs the same tests and `claude plugin validate --strict` on every push, then installs the plugin from the marketplace entry to prove that path works too.
 
 ## Limitations
 
-- The band shows the **most recent** call, not a queue of parallel ones, and it clears when the turn ends.
+- The band shows the **call in flight**, not a history, and clears the moment the call returns. With parallel calls, the newest takes the line and an older one finishing does not erase it.
 - Calls made by subagents are skipped, so one line is always the main thread's.
 - Nothing is drawn in headless runs, where there is no UI.
 - The model line is a hint about what Claude *says* it is doing; the arguments are the ground truth.
