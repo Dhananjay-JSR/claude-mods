@@ -29,6 +29,16 @@ A **Claude Mod** that shows the intent of a tool call in one line above the prom
 
 Claude Code shows you a tool *row* after Claude has already decided to act. `intent-lens` translates the call into a human sentence first, in the place your eyes already are. It reads either the tool's own arguments (free, instant) or asks Claude to phrase it (a few tokens).
 
+## Why
+
+In auto mode, Claude Code moves faster than you can read, and the commands it writes are made for the shell, not for you. A `find | xargs | awk` pipeline tells you almost nothing at a glance, and once it runs, the call folds into a summary like *Ran 2 shell commands*.
+
+intent-lens puts the meaning where your eyes already are, just above the prompt, while the call is still in flight:
+
+- **Understand it at a glance.** One sentence for the call, and each stage of a pipeline in plain words.
+- **Catch the dangerous ones.** A recursive delete, a force-push or `curl … | sh` turns the line red and raises a warning, even when the band is hidden.
+- **Pay nothing for it.** By default it reads the tool's own arguments: no tokens, no network.
+
 ## Install
 
 ### From the marketplace
