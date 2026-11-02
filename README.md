@@ -54,20 +54,29 @@ Switch engines with `/intent mode local`, `auto`, or `model`.
 
 ## Install
 
-Requires a current Claude Code:
+Requires a current Claude Code (`brew install --cask claude-code`).
 
-```bash
-brew install --cask claude-code    # install
-brew upgrade --cask claude-code    # update
+### From the marketplace
+
+In a Claude Code session:
+
+```
+/plugin marketplace add Dhananjay-JSR/intent-lens
+/plugin install intent-lens --marketplace Dhananjay-JSR/intent-lens
 ```
 
-A mod is a Claude Code plugin whose `hooks/hooks.json` names a JavaScript module. This repository *is* that plugin folder.
+Or from your shell:
 
 ```bash
-./run.sh
+claude plugin marketplace add Dhananjay-JSR/intent-lens
+claude plugin install intent-lens@intent-lens
 ```
 
-That wraps `claude --plugin-dir /path/to/intent-lens`. The launcher checks your version first, so an outdated Claude Code exits with the upgrade command instead of loading a mod that does nothing.
+### For one session
+
+```bash
+claude --plugin-dir /path/to/intent-lens
+```
 
 To load it without typing the flag, alias it in your shell:
 
@@ -134,14 +143,15 @@ A Claude Mod runs inside Claude Code's own process, so the rules are strict:
 
 ```
 intent-lens/
-├── .claude-plugin/plugin.json   manifest
+├── .claude-plugin/
+│   ├── marketplace.json         the catalog that /plugin marketplace add reads
+│   └── plugin.json              the plugin manifest
 ├── hooks/hooks.json             {"modules": ["./register.js"]} — makes it a mod
 ├── hooks/register.js            hooks, both engines, risk rules
 ├── tests/intent.test.mjs        hooks run against a stubbed API
 ├── assets/logo.svg              the mark
 ├── assets/demo.svg              the band, illustrated
-├── .github/workflows/ci.yml     validate, test, lint
-└── run.sh                       starts Claude Code with the mod loaded
+└── .github/workflows/ci.yml     validate, test, assets
 ```
 
 ## Tests
@@ -153,7 +163,7 @@ node tests/intent.test.mjs
 # 42 pass, 0 fail
 ```
 
-CI runs those tests, shellcheck, and `claude plugin validate --strict` on every push.
+CI runs those tests and `claude plugin validate --strict` on every push, then installs the plugin from the marketplace entry to prove that path works too.
 
 ## Limitations
 
