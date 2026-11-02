@@ -74,4 +74,4 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y -qq libxml2-utils
           fi
-          xmllint --noout assets/*.svg
+          xmllint --noout plugins/*/assets/*.svg
