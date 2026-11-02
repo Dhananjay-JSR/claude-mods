@@ -47,7 +47,7 @@ Register the catalog once, then install this mod:
 
 ```
 /plugin marketplace add Dhananjay-JSR/claude-mods
-/plugin install intent-lens --marketplace Dhananjay-JSR/claude-mods
+/plugin install intent-lens@claude-mods
 ```
 
 From your shell:

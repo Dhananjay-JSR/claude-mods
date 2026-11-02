@@ -38,7 +38,7 @@ Each mod has its own README with commands, internals, and limits. More land here
 
 ## Requirements
 
-A current Claude Code. With Homebrew:
+Claude Code 2.1.287 or newer. With Homebrew:
 
 ```bash
 brew install --cask claude-code
