@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml/badge.svg"></a>
-  <img alt="Claude Code 2.1.287+" src="https://img.shields.io/badge/Claude_Code-2.1.287%2B-D97757?style=flat-square">
+  <img alt="Claude Mod" src="https://img.shields.io/badge/Claude_Mod-function_hooks-D97757?style=flat-square">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1A1614?style=flat-square">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5FC4D4?style=flat-square">
 </p>
@@ -28,7 +28,7 @@ Claude Code shows you a tool *row* after Claude has already decided to act. `int
 | Marker | Engine | What it does | Cost |
 | :- | :- | :- | :- |
 | `▸` cyan | **local** | Deterministic translation of the tool's arguments | none |
-| `✦` magenta | **model** | Claude writes the line from the tool, its arguments, and the local draft | ≤60 output tokens per call, plus the prompt |
+| `✦` magenta | **model** | Claude writes the line from the tool, its arguments, and the local draft | at most 60 output tokens per call, plus the prompt |
 | `⚠` red | **risk** | Always local: a destructive shell command is never sent to the model | none |
 
 `auto` (the default) draws the local line immediately, then upgrades it with Claude for the calls that read worst — edits, unknown tools, and MCP tools. The band never sits blank while the model thinks.
@@ -54,17 +54,20 @@ Switch engines with `/intent mode local`, `auto`, or `model`.
 
 ## Install
 
+Requires a current Claude Code:
+
+```bash
+brew install --cask claude-code    # install
+brew upgrade --cask claude-code    # update
+```
+
 A mod is a Claude Code plugin whose `hooks/hooks.json` names a JavaScript module. This repository *is* that plugin folder.
 
 ```bash
 ./run.sh
 ```
 
-That wraps:
-
-```bash
-claude --plugin-dir /path/to/intent-lens
-```
+That wraps `claude --plugin-dir /path/to/intent-lens`. The launcher checks your version first, so an outdated Claude Code exits with the upgrade command instead of loading a mod that does nothing.
 
 To load it without typing the flag, alias it in your shell:
 
@@ -72,33 +75,9 @@ To load it without typing the flag, alias it in your shell:
 alias claude-lens='claude --plugin-dir /path/to/intent-lens'
 ```
 
-Claude Code does not install a local plugin directory globally before 2.1.290; there is no `claude plugin install <dir>`. From 2.1.290, `CLAUDE_CODE_PLUGIN_DIRS` takes a `:`-separated list of plugin directories.
+To load it in every session, add the directory to `CLAUDE_CODE_PLUGIN_DIRS` (`:`-separated).
 
 Check it loaded with `/plugin` (Tab to **Installed**) or just run `/intent`.
-
-## Version requirements
-
-Requires **Claude Code 2.1.287 or later**, where mods load by default. `run.sh` refuses to start on anything older and prints the upgrade command.
-
-Built and verified against **2.1.309** on macOS. `claude plugin validate` passes, the tests pass, and `$.model.complete` was exercised against the real API.
-
-### Updating
-
-Installed with Homebrew:
-
-```bash
-brew update && brew upgrade --cask claude-code
-claude --version
-```
-
-To stay current without thinking about it, Homebrew's autoupdate tap can run that upgrade daily:
-
-```bash
-brew tap homebrew/autoupdate
-brew autoupdate start 86400 --upgrade --cleanup
-```
-
-That upgrades every Homebrew-managed formula and cask, not just Claude Code. Stop it with `brew autoupdate stop`.
 
 ## How the intent is worked out
 
@@ -121,7 +100,7 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 
 `Bash` is the interesting one: Claude Code's Bash tool already requires Claude to describe each command, so that description **is** the stated intent — normally buried in the tool row.
 
-The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words and hard-caps the result at 110 characters. Some builds resolve `$.model.complete` to a plain string and others to `{ isAnswered, text }`, so both are read. The mod stops waiting after 1.5 seconds. Any failure, timeout, or refusal silently keeps the local line: the intent must never break a call.
+The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words, hard-caps the answer at 110 characters, and waits at most 1.5 seconds. A failure, a refusal, or a slow reply silently keeps the local line: the intent must never break a call.
 
 ## Risk detection
 
@@ -161,19 +140,20 @@ intent-lens/
 ├── tests/intent.test.mjs        hooks run against a stubbed API
 ├── assets/logo.svg              the mark
 ├── assets/demo.svg              the band, illustrated
+├── .github/workflows/ci.yml     validate, test, lint
 └── run.sh                       starts Claude Code with the mod loaded
 ```
 
 ## Tests
 
-`claude plugin test` needs a newer Claude Code, so the tests are plain Node: they load the hooks module from a temporary copy and fire every hook — including `session.start` — against a stubbed mods API. Each test gets a fresh copy of the module, so one test's mode, history, or UI flag can never leak into the next.
+`claude plugin test` runs `.test.ts` files inside a session; these tests are plain Node instead, so they need no session, network, or credentials. They load the hooks module from a temporary copy and fire every hook — including `session.start` — against a stubbed mods API. Each test gets a fresh copy of the module, so one test's mode, history, or UI flag can never leak into the next.
 
 ```bash
 node tests/intent.test.mjs
 # 42 pass, 0 fail
 ```
 
-CI runs those tests and `claude plugin validate --strict` on every push, against both Claude Code 2.1.287 and the latest release.
+CI runs those tests, shellcheck, and `claude plugin validate --strict` on every push.
 
 ## Limitations
 
