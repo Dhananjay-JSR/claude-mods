@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/Dhananjay-JSR/intent-lens/actions/workflows/ci.yml/badge.svg"></a>
+  <img alt="GitHub stars" src="https://img.shields.io/github/stars/Dhananjay-JSR/intent-lens?style=flat-square&color=1A1614">
   <img alt="Claude Mod" src="https://img.shields.io/badge/Claude_Mod-function_hooks-D97757?style=flat-square">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1A1614?style=flat-square">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5FC4D4?style=flat-square">
@@ -22,6 +23,15 @@
 A **Claude Mod** that shows the intent of a tool call in one line above the prompt, while the call is still pending.
 
 Claude Code shows you a tool *row* after Claude has already decided to act. `intent-lens` translates the call into a human sentence first, in the place your eyes already are. It reads either the tool's own arguments (free, instant) or asks Claude to phrase it (a few tokens).
+
+## Quick start
+
+```
+/plugin marketplace add Dhananjay-JSR/intent-lens
+/plugin install intent-lens --marketplace Dhananjay-JSR/intent-lens
+```
+
+Then run `/intent` to confirm it loaded. No clone, no build step.
 
 ## Two engines
 
@@ -56,7 +66,7 @@ Switch engines with `/intent mode local`, `auto`, or `model`.
 
 Requires a current Claude Code (`brew install --cask claude-code`).
 
-### From the marketplace
+### From the public marketplace
 
 In a Claude Code session:
 
@@ -70,6 +80,12 @@ Or from your shell:
 ```bash
 claude plugin marketplace add Dhananjay-JSR/intent-lens
 claude plugin install intent-lens@intent-lens
+```
+
+Installs are cached. To take a newer version later:
+
+```bash
+claude plugin update intent-lens
 ```
 
 ### For one session
