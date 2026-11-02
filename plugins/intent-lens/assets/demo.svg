@@ -39,7 +39,7 @@
     <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15">
       <text x="56" y="90" fill="#5FC4D4" font-weight="600">Bash</text>
       <text x="104" y="90" fill="#B3A89E">Count the top five languages across your repos</text>
-      <text x="104" y="107" fill="#8A817A" font-size="12">6 steps · fetch → pick fields → sort → count → rank → top 5</text>
+      <text x="104" y="107" fill="#8A817A" font-size="12">6 steps · fetch → extract values → sort → count repeats → sort by number → top 5</text>
 
       <text x="56" y="126" fill="#C58AF9" font-weight="600">Edit</text>
       <text x="104" y="126" fill="#B3A89E">Add a null guard to the token parser</text>

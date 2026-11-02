@@ -161,7 +161,7 @@ function check(name, actual, expected) {
   check(
     'restores saved state',
     (await mod.intent($, { args: '' })).text,
-    'intent line is off, engine model. Use /intent on, off, toggle, mode, log, or clear.',
+    'intent line is off, engine model, words plain. Use /intent on, off, toggle, mode, words, log, or clear.',
   )
 
   // A resumed session reuses the process: history must not carry over
@@ -361,7 +361,7 @@ function check(name, actual, expected) {
   check(
     'restored state after a failed registration',
     (await mod.intent($, { args: '' })).text,
-    'intent line is off, engine auto. Use /intent on, off, toggle, mode, log, or clear.',
+    'intent line is off, engine auto, words plain. Use /intent on, off, toggle, mode, words, log, or clear.',
   )
 }
 
@@ -408,7 +408,7 @@ function check(name, actual, expected) {
     await band(mod),
     [
       '▸ Bash Count the top five languages across your repos',
-      '       6 steps · fetch → pick fields → sort → count → rank → top 5',
+      '       6 steps · fetch → extract values → sort → count repeats → sort by number → top 5',
     ].join('\n'),
   )
 
@@ -421,7 +421,7 @@ function check(name, actual, expected) {
   check(
     'quoted pipes are not stages',
     (await band(mod)).split('\n')[1],
-    '       3 steps · fetch → pick fields → top 3',
+    '       3 steps · fetch → extract values → top 3',
   )
 }
 
@@ -449,7 +449,7 @@ function check(name, actual, expected) {
   check(
     'gh and jq are decoded',
     (await band(mod)).split('\n')[1],
-    '       4 steps · query GitHub → filter → sort → top 5',
+    '       4 steps · query GitHub → keep matching rows → sort → top 5',
   )
 
   // More tools get their own phrasing
@@ -465,6 +465,25 @@ function check(name, actual, expected) {
 
   await fire(mod, { tool: 'TaskCreate', subject: 'write the migration' })
   check('TaskCreate is named', await band(mod), '▸ TaskCreate add a task: write the migration')
+}
+
+// ---------------------------------------------------------------------------
+// Terse vocabulary is one command away
+// ---------------------------------------------------------------------------
+{
+  const mod = await loadMod()
+  await band(mod)
+  await mod.intent(dollar().$, { args: 'words terse' })
+  await fire(mod, {
+    tool: 'Bash',
+    command: `curl -s https://example.com/x | jq -r '.[] | .name' | sort | head -3`,
+    description: 'List names',
+  })
+  check(
+    'terse words',
+    (await band(mod)).split('\n')[1],
+    '       4 steps · fetch → pick fields → sort → top 3',
+  )
 }
 
 // ---------------------------------------------------------------------------

@@ -75,7 +75,7 @@ Check it loaded with `/plugin` (Tab to **Installed**) or just run `/intent`.
 
 ```
 ▸ Bash   Count the top five languages across your repos
-         6 steps · fetch → pick fields → sort → count → rank → top 5
+         6 steps · fetch → extract values → sort → count repeats → sort by number → top 5
 ✦ Edit   Add a null guard to the token parser
 ⚠ Bash   delete files recursively
 ```
@@ -91,6 +91,7 @@ Switch engines with `/intent mode local`, `auto`, or `model`.
 | `/intent` | Show the current state and usage |
 | `/intent on` / `off` / `toggle` | Show or hide the band line (persisted). Warnings still fire when off. |
 | `/intent mode local\|auto\|model` | Choose the engine (persisted) |
+| `/intent words plain\|terse` | Plain vocabulary (default), or the shorter one (persisted) |
 | `/intent log` | The last 20 calls with `✓` / `✗` outcomes and their engine |
 | `/intent clear` | Forget the history |
 | `/intent-log` | Same as `/intent log` |
@@ -117,7 +118,7 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 
 `Bash` is the interesting one: Claude Code's Bash tool already requires Claude to describe each command, so that description **is** the stated intent — normally buried in the tool row.
 
-Under a pipeline, a second dim line decodes it stage by stage: `6 steps · fetch → pick fields → sort → count → rank → top 5`. Only pipelines of three or more stages get that line, because a two-step chain reads fine as it is. The mapping is literal — `curl` → fetch, `jq 'select(…)'` → filter, `uniq -c` → count, `head -5` → top 5 — and quote-aware, so a `|` inside a jq program is not a new stage. It explains the mechanics; the full command stays in Claude Code's tool row.
+Under a pipeline, a second dim line decodes it stage by stage: `6 steps · fetch → extract values → sort → count repeats → sort by number → top 5`. Only pipelines of three or more stages get that line, because a two-step chain reads fine as it is. The mapping is literal — `curl` → fetch, `jq 'select(…)'` → keep matching rows, `uniq -c` → count repeats, `head -5` → top 5 — and quote-aware, so a `|` inside a jq program is not a new stage. `/intent words terse` switches to the shorter vocabulary (`pick fields`, `rank`). It explains the mechanics; the full command stays in Claude Code's tool row.
 
 The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words, hard-caps the answer at 110 characters, and waits at most 1.5 seconds. `auto` also reaches for the model when a shell command arrives without a description, since the local line would then have to fall back to the raw command. A failure, a refusal, or a slow reply silently keeps the local line: the intent must never break a call.
 
@@ -153,7 +154,7 @@ plugins/intent-lens/
 
 ```bash
 node tests/intent.test.mjs
-# 60 pass, 0 fail
+# 61 pass, 0 fail
 ```
 
 Run it from this folder. The repository's CI runs the same tests and `claude plugin validate --strict` on every push, then installs the plugin from the marketplace entry to prove that path works too.

@@ -42,6 +42,8 @@ const KNOWN_TOOLS = new Set([
 let enabled = true
 // Which engine phrases the intent: 'auto' upgrades the calls that read worst.
 let mode = 'auto'
+// Which vocabulary the stage chain uses: 'plain' or 'terse'.
+let wording = 'plain'
 // Set once the band has drawn, so headless runs never spend tokens.
 let uiSeen = false
 let lastIntent = null
@@ -86,6 +88,8 @@ export function register(on) {
       if (savedMode === 'local' || savedMode === 'auto' || savedMode === 'model') {
         mode = savedMode
       }
+      const savedWording = await $.store.get('wording')
+      if (savedWording === 'plain' || savedWording === 'terse') wording = savedWording
     } catch {
       // No store on this build: the in-memory defaults stand.
     }
@@ -246,6 +250,33 @@ export function register(on) {
       }
     }
 
+    // Vocabulary: /intent words plain|terse, or the /intent plain shorthand
+    if (verb === 'words' || verb === 'plain' || verb === 'terse') {
+      const next = verb === 'words' ? value : verb
+      if (next && next !== 'plain' && next !== 'terse') {
+        return { text: 'words are ' + wording + '. Use /intent words plain, or terse.' }
+      }
+      wording = next || (wording === 'plain' ? 'terse' : 'plain')
+      try {
+        await $.store.set('wording', wording)
+      } catch {
+        // Not persisted, but it still applies to this session.
+      }
+      try {
+        $.ui.invalidate('ui.render')
+      } catch {
+        // No UI to redraw.
+      }
+      return {
+        text:
+          'words ' +
+          wording +
+          (wording === 'plain'
+            ? ' — extract values, sort by number.'
+            : ' — pick fields, rank.'),
+      }
+    }
+
     if (verb === 'on') enabled = true
     else if (verb === 'off') enabled = false
     else if (verb === 'toggle') enabled = !enabled
@@ -256,7 +287,9 @@ export function register(on) {
           (enabled ? 'on' : 'off') +
           ', engine ' +
           mode +
-          '. Use /intent on, off, toggle, mode, log, or clear.',
+          ', words ' +
+          wording +
+          '. Use /intent on, off, toggle, mode, words, log, or clear.',
       }
     }
 
@@ -550,6 +583,11 @@ function splitPipeline(command) {
 
 // One verb per stage. Kept deliberately literal: this is a reading aid, not a
 // model, so it says what the command does and nothing it cannot see.
+// Pick the word for the current vocabulary.
+function say(terse, plain) {
+  return wording === 'plain' ? plain : terse
+}
+
 function stageVerb(segment) {
   const words = segment.split(/\s+/)
   const head = words[0] || ''
@@ -563,26 +601,26 @@ function stageVerb(segment) {
     case 'yq':
       return jqVerb(segment)
     case 'sort':
-      if (/-[a-z]*u/.test(segment)) return 'dedupe'
+      if (/-[a-z]*u/.test(segment)) return say('dedupe', 'remove duplicates')
       if (/-[a-z]*k/.test(segment)) return 'sort by column'
-      return /-[a-z]*[rn]/.test(segment) ? 'rank' : 'sort'
+      return /-[a-z]*[rn]/.test(segment) ? say('rank', 'sort by number') : 'sort'
     case 'uniq':
       if (/-[a-z]*d/.test(segment)) return 'keep duplicates'
-      return /-[a-z]*c/.test(segment) ? 'count' : 'dedupe'
+      return /-[a-z]*c/.test(segment) ? say('count', 'count repeats') : say('dedupe', 'remove duplicates')
     case 'head':
       return count ? 'top ' + count : 'first rows'
     case 'tail':
       return count ? 'last ' + count : 'last rows'
     case 'awk':
-      if (/\bsum\b|\+=/.test(segment)) return 'sum'
+      if (/\bsum\b|\+=/.test(segment)) return say('sum', 'add up')
       if (/\bNR\b/.test(segment)) return 'format rows'
-      return 'compute'
+      return say('compute', 'calculate')
     case 'grep':
     case 'rg':
     case 'ag':
-      return /-[a-z]*c/.test(segment) ? 'count matches' : 'filter'
+      return /-[a-z]*c/.test(segment) ? 'count matches' : say('filter', 'keep matching lines')
     case 'xargs':
-      return 'for each'
+      return say('for each', 'run for each item')
     case 'wc':
       return 'count lines'
     case 'find':
@@ -613,7 +651,7 @@ function stageVerb(segment) {
       return 'query GitHub'
     case 'docker':
     case 'podman':
-      return 'container'
+      return say('container', 'run container')
     case 'kubectl':
     case 'helm':
       return 'query cluster'
@@ -622,7 +660,7 @@ function stageVerb(segment) {
     case 'sqlite3':
       return 'query database'
     case 'terraform':
-      return 'apply infra'
+      return say('apply infra', 'apply infrastructure')
     case 'rm':
       return 'delete'
     case 'mkdir':
@@ -701,12 +739,12 @@ function stageVerb(segment) {
 
 // Read a jq program for what it does to the rows, not just that it is jq.
 function jqVerb(segment) {
-  if (/\bgroup_by\s*\(/.test(segment)) return 'group'
-  if (/\bselect\s*\(/.test(segment)) return 'filter'
-  if (/\bmap\s*\(/.test(segment)) return 'map'
+  if (/\bgroup_by\s*\(/.test(segment)) return say('group', 'group rows')
+  if (/\bselect\s*\(/.test(segment)) return say('filter', 'keep matching rows')
+  if (/\bmap\s*\(/.test(segment)) return say('map', 'transform each')
   if (/\blength\b/.test(segment)) return 'count'
   if (/@(tsv|csv|json)/.test(segment)) return 'format rows'
-  return 'pick fields'
+  return say('pick fields', 'extract values')
 }
 
 function displayTool(tool) {
