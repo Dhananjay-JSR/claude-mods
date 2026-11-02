@@ -114,7 +114,7 @@ async function fire(mod, event, options = {}) {
   return { log, saved, out, result, calls }
 }
 
-// The one line the band would draw right now.
+// The whole tree the band would draw right now, one line per row.
 async function band(mod) {
   const { $ } = dollar()
   const tree = await mod.render(
@@ -123,8 +123,15 @@ async function band(mod) {
     async () => 'engine',
   )
   if (!tree || !tree.children) return '(nothing)'
-  const row = tree.children[0]
-  return row.children.map((cell) => cell.children.join('')).join(' ')
+  const lines = []
+  for (const child of tree.children) {
+    if (!child || typeof child !== 'object') continue
+    if (child.kind === 'text') lines.push(child.children.join(''))
+    else if (child.kind === 'box') {
+      lines.push(child.children.map((cell) => cell.children.join('')).join(' '))
+    }
+  }
+  return lines.join('\n')
 }
 
 let pass = 0
@@ -372,14 +379,49 @@ function check(name, actual, expected) {
   })
   check(
     'bash shows only the description',
-    await band(mod),
+    (await band(mod)).split('\n')[0],
     '▸ Bash Count the top five languages across your public repos',
   )
   check('a described command skips the model', described.log.requests.length, 0)
 
   const bare = await fire(mod, { tool: 'Bash', command: 'ls -la | wc -l' }, { answer: 'Count the files here' })
   check('an undescribed command asks the model', bare.log.requests.length, 1)
-  check('the model words the undescribed command', await band(mod), '✦ Bash Count the files here')
+  check('the model words the undescribed command', (await band(mod)).split('\n')[0], '✦ Bash Count the files here')
+}
+
+// ---------------------------------------------------------------------------
+// A pipeline is decoded into the verbs of its stages
+// ---------------------------------------------------------------------------
+{
+  const mod = await loadMod()
+  await band(mod)
+
+  await fire(mod, {
+    tool: 'Bash',
+    command:
+      'curl -s "https://api.github.com/users/x/repos?per_page=100" | jq -r ".[].language // empty" | sort | uniq -c | sort -rn | head -5',
+    description: 'Count the top five languages across your repos',
+  })
+  check(
+    'the stage line follows the description',
+    await band(mod),
+    [
+      '▸ Bash Count the top five languages across your repos',
+      '       6 steps · fetch → pick fields → sort → count → rank → top 5',
+    ].join('\n'),
+  )
+
+  // A pipe inside a quoted jq program is not a new stage
+  await fire(mod, {
+    tool: 'Bash',
+    command: `curl -s https://example.com/data.json | jq -r '.[] | .name' | head -3`,
+    description: 'List names',
+  })
+  check(
+    'quoted pipes are not stages',
+    (await band(mod)).split('\n')[1],
+    '       3 steps · fetch → pick fields → top 3',
+  )
 }
 
 // ---------------------------------------------------------------------------

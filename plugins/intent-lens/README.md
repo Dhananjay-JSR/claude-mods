@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.svg" alt="Three intent lines above a prompt: a Bash build, a model-phrased edit, and a red warning before a recursive delete" width="720">
+  <img src="assets/demo.svg" alt="Three intent lines above a prompt: a shell command with its stages decoded, a model-phrased edit, and a red warning before a recursive delete" width="720">
 </p>
 
 A **Claude Mod** that shows the intent of a tool call in one line above the prompt, while the call is still pending.
@@ -74,7 +74,8 @@ Check it loaded with `/plugin` (Tab to **Installed**) or just run `/intent`.
 `auto` (the default) draws the local line immediately, then upgrades it with Claude for the calls that read worst — edits, unknown tools, and MCP tools. The band never sits blank while the model thinks.
 
 ```
-▸ Bash   tidy up the build output
+▸ Bash   Count the top five languages across your repos
+         6 steps · fetch → pick fields → sort → count → rank → top 5
 ✦ Edit   Add a null guard to the token parser
 ⚠ Bash   delete files recursively
 ```
@@ -100,7 +101,7 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 
 | Tool | What it says |
 | :- | :- |
-| `Bash` | Claude's own `description` for the command — never the pipeline |
+| `Bash` | Claude's own `description`, plus a decoded chain of its stages |
 | `Read` | `~/app/src/auth.ts:10-20` |
 | `Edit` | `~/app/src/auth.ts (12 lines → 24 lines)` |
 | `Write` | `~/app/notes.md (48 lines)` |
@@ -114,6 +115,8 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 | anything else | Its first two string arguments, so new tools still say something |
 
 `Bash` is the interesting one: Claude Code's Bash tool already requires Claude to describe each command, so that description **is** the stated intent — normally buried in the tool row.
+
+Under a pipeline, a second dim line decodes it stage by stage: `6 steps · fetch → pick fields → sort → count → rank → top 5`. The mapping is literal — `curl` → fetch, `jq` → pick fields, `uniq -c` → count, `head -5` → top 5 — and quote-aware, so a `|` inside a jq program is not a new stage. It explains the mechanics; the full command stays in Claude Code's tool row.
 
 The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words, hard-caps the answer at 110 characters, and waits at most 1.5 seconds. `auto` also reaches for the model when a shell command arrives without a description, since the local line would then have to fall back to the raw command. A failure, a refusal, or a slow reply silently keeps the local line: the intent must never break a call.
 
@@ -149,7 +152,7 @@ plugins/intent-lens/
 
 ```bash
 node tests/intent.test.mjs
-# 51 pass, 0 fail
+# 53 pass, 0 fail
 ```
 
 Run it from this folder. The repository's CI runs the same tests and `claude plugin validate --strict` on every push, then installs the plugin from the marketplace entry to prove that path works too.

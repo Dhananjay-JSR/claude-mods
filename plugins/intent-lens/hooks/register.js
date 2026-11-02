@@ -193,9 +193,14 @@ export function register(on) {
     // Keep Claude Code's own band content below ours.
     const theirs = await next(e)
 
+    const lines = [bandLine(el, lastIntent, columns)]
+    if (lastIntent.stages && lastIntent.stages.length > 1) {
+      lines.push(stageLine(el, lastIntent, columns))
+    }
+
     return el.Box({
       flexDirection: 'column',
-      children: [bandLine(el, lastIntent, columns), theirs],
+      children: [...lines, theirs],
     })
   })
 
@@ -438,6 +443,16 @@ function bandLine(el, item, columns) {
   })
 }
 
+function stageLine(el, item, columns) {
+  const indent = ' '.repeat(item.tool.length + 3)
+  const label = item.stages.length + ' steps · ' + item.stages.join(' → ')
+  return el.Text({
+    dimColor: true,
+    wrap: 'truncate',
+    children: [indent + short(label, Math.max(12, columns - indent.length))],
+  })
+}
+
 function logText() {
   if (!history.length) return 'no tool calls recorded yet.'
 
@@ -470,14 +485,128 @@ function logText() {
 
 // ---------------------------------------------------------------- heuristics
 
-// Turn a tool call into { tool, detail, risk, source, described }. Pure.
+// Turn a tool call into { tool, detail, risk, source, described, stages }. Pure.
 function intentOf(raw, e) {
   return {
     tool: displayTool(raw),
     detail: describe(raw, e),
     risk: riskOf(raw, e),
+    stages: raw === 'Bash' ? stagesOf(String(e.command || '')) : [],
     source: 'local',
     described: typeof e.description === 'string' && e.description.trim().length > 0,
+  }
+}
+
+// Turn a pipeline into the verbs of its stages: `fetch → pick fields → count`.
+// Quote-aware, so a `|` inside a jq program is not a new stage.
+function stagesOf(command) {
+  if (!command) return []
+  const segments = splitPipeline(command)
+  if (segments.length < 2) return []
+  return segments.slice(0, 8).map(stageVerb)
+}
+
+function splitPipeline(command) {
+  const segments = []
+  let current = ''
+  let quote = null
+
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i]
+    if (quote) {
+      current += ch
+      if (ch === quote) quote = null
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      current += ch
+      continue
+    }
+    if (ch === '|' || ch === ';') {
+      segments.push(current)
+      current = ''
+      if (ch === '|' && command[i + 1] === '|') i += 1
+      continue
+    }
+    if (ch === '&' && command[i + 1] === '&') {
+      segments.push(current)
+      current = ''
+      i += 1
+      continue
+    }
+    current += ch
+  }
+  segments.push(current)
+  return segments.map((segment) => segment.trim()).filter(Boolean)
+}
+
+// One verb per stage. Kept deliberately literal: this is a reading aid, not a
+// model, so it says what the command does and nothing it cannot see.
+function stageVerb(segment) {
+  const words = segment.split(/\s+/)
+  const head = words[0] || ''
+  const count = (words.find((word) => /^-\d+$/.test(word)) || '').slice(1)
+
+  switch (head) {
+    case 'curl':
+    case 'wget':
+      return 'fetch'
+    case 'jq':
+    case 'yq':
+      return 'pick fields'
+    case 'sort':
+      return /-[a-z]*[rn]/.test(segment) ? 'rank' : 'sort'
+    case 'uniq':
+      return /-[a-z]*c/.test(segment) ? 'count' : 'dedupe'
+    case 'head':
+      return count ? 'top ' + count : 'first rows'
+    case 'tail':
+      return count ? 'last ' + count : 'last rows'
+    case 'awk':
+      return 'compute'
+    case 'grep':
+    case 'rg':
+      return 'filter'
+    case 'xargs':
+      return 'for each'
+    case 'wc':
+      return 'count lines'
+    case 'find':
+      return 'find files'
+    case 'cut':
+      return 'keep columns'
+    case 'tr':
+      return 'replace chars'
+    case 'sed':
+      return 'edit text'
+    case 'cat':
+      return 'read file'
+    case 'ls':
+      return 'list files'
+    case 'tee':
+      return 'write out'
+    case 'node':
+    case 'python':
+    case 'python3':
+      return 'run script'
+    case 'git':
+      return 'git ' + (words[1] || '')
+    case 'rm':
+      return 'delete'
+    case 'mkdir':
+      return 'make folder'
+    case 'cd':
+      return 'enter folder'
+    case 'echo':
+    case 'printf':
+      return 'print'
+    case 'npm':
+    case 'pnpm':
+    case 'yarn':
+      return 'npm ' + (words[1] || '')
+    default:
+      return head || 'run'
   }
 }
 
