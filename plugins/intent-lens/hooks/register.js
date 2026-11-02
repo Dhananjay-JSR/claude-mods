@@ -342,13 +342,14 @@ function withDeadline($, work, ms) {
 }
 
 // Decide whether the wording is worth a model call. 'auto' upgrades the calls
-// where the local line is weakest: edits, and tools this mod doesn't know.
-// Risk is never delegated: the warning must not depend on a model's wording.
+// where the local line is weakest: edits, unknown tools, MCP tools, and a
+// shell command Claude did not describe. Risk is never delegated.
 function wantsModel(raw, item) {
   if (item.risk) return false
   if (mode === 'local') return false
   if (!uiSeen) return false
   if (mode === 'model') return true
+  if (raw === 'Bash') return !item.described
   return (
     raw === 'Edit' ||
     raw === 'Write' ||
@@ -469,13 +470,14 @@ function logText() {
 
 // ---------------------------------------------------------------- heuristics
 
-// Turn a tool call into { tool, detail, risk, source }. Pure: no mods API.
+// Turn a tool call into { tool, detail, risk, source, described }. Pure.
 function intentOf(raw, e) {
   return {
     tool: displayTool(raw),
     detail: describe(raw, e),
     risk: riskOf(raw, e),
     source: 'local',
+    described: typeof e.description === 'string' && e.description.trim().length > 0,
   }
 }
 
@@ -493,7 +495,8 @@ function describe(tool, e) {
     case 'Bash': {
       const cmd = oneLine(String(e.command || ''))
       const why = typeof e.description === 'string' ? oneLine(e.description) : ''
-      if (why) return short(why + ' — ' + cmd, DETAIL_LIMIT)
+      // The description is the intent; the pipeline is what the tool row is for.
+      if (why) return short(why, DETAIL_LIMIT)
       return short('run ' + cmd, DETAIL_LIMIT)
     }
 

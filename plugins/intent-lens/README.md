@@ -74,10 +74,12 @@ Check it loaded with `/plugin` (Tab to **Installed**) or just run `/intent`.
 `auto` (the default) draws the local line immediately, then upgrades it with Claude for the calls that read worst — edits, unknown tools, and MCP tools. The band never sits blank while the model thinks.
 
 ```
-▸ Bash   tidy up the build output — rm -rf dist && npm run build
+▸ Bash   tidy up the build output
 ✦ Edit   Add a null guard to the token parser
-⚠ Bash   delete files recursively — rm -rf ~/projects/old
+⚠ Bash   delete files recursively
 ```
+
+The command itself stays in Claude Code's tool row. The band answers what it *means*.
 
 Switch engines with `/intent mode local`, `auto`, or `model`.
 
@@ -98,7 +100,7 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 
 | Tool | What it says |
 | :- | :- |
-| `Bash` | Claude's own `description` for the command, then the command itself |
+| `Bash` | Claude's own `description` for the command — never the pipeline |
 | `Read` | `~/app/src/auth.ts:10-20` |
 | `Edit` | `~/app/src/auth.ts (12 lines → 24 lines)` |
 | `Write` | `~/app/notes.md (48 lines)` |
@@ -113,7 +115,7 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 
 `Bash` is the interesting one: Claude Code's Bash tool already requires Claude to describe each command, so that description **is** the stated intent — normally buried in the tool row.
 
-The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words, hard-caps the answer at 110 characters, and waits at most 1.5 seconds. A failure, a refusal, or a slow reply silently keeps the local line: the intent must never break a call.
+The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words, hard-caps the answer at 110 characters, and waits at most 1.5 seconds. `auto` also reaches for the model when a shell command arrives without a description, since the local line would then have to fall back to the raw command. A failure, a refusal, or a slow reply silently keeps the local line: the intent must never break a call.
 
 ## Risk detection
 
@@ -124,7 +126,7 @@ A match turns the marker red and raises a toast. It is computed locally and alwa
 ## Privacy and cost
 
 - **`local` mode** sends nothing anywhere and costs no tokens.
-- **`auto` mode** calls the model only for edits, unknown tools, and MCP tools — a few hundred tokens per edit.
+- **`auto` mode** calls the model only for edits, unknown tools, MCP tools, and a shell command Claude didn't describe — a few hundred tokens per edit.
 - **`model` mode** calls it for every tool call, which adds up to 1.5 seconds of latency per call.
 - Model calls use your own Claude Code credentials and go through `$.model.complete`, exactly like any other request the session makes.
 - Headless runs (`claude -p`, Agent SDK) never raise `ui.render`, and the mod calls the model only after that event has fired, so such a run spends nothing.
@@ -147,7 +149,7 @@ plugins/intent-lens/
 
 ```bash
 node tests/intent.test.mjs
-# 47 pass, 0 fail
+# 51 pass, 0 fail
 ```
 
 Run it from this folder. The repository's CI runs the same tests and `claude plugin validate --strict` on every push, then installs the plugin from the marketplace entry to prove that path works too.

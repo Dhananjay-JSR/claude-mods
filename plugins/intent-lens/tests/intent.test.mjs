@@ -261,7 +261,7 @@ function check(name, actual, expected) {
   })
   check('risk skips the model', run.log.requests.length, 0)
   check('risk toast', run.log.toasts, ['⚠ Bash will delete files recursively'])
-  check('risk band', await band(mod), '⚠ Bash clean up — rm -rf ~/projects/old')
+  check('risk band', await band(mod), '⚠ Bash clean up')
 }
 
 {
@@ -355,6 +355,31 @@ function check(name, actual, expected) {
     (await mod.intent($, { args: '' })).text,
     'intent line is off, engine auto. Use /intent on, off, toggle, mode, log, or clear.',
   )
+}
+
+// ---------------------------------------------------------------------------
+// A described shell command shows its intent, not the pipeline
+// ---------------------------------------------------------------------------
+{
+  const mod = await loadMod()
+  await band(mod)
+
+  const described = await fire(mod, {
+    tool: 'Bash',
+    command:
+      'curl -s "https://api.github.com/users/x/repos?per_page=100" | jq -r ".[].language // empty" | sort | uniq -c | sort -rn | head -5',
+    description: 'Count the top five languages across your public repos',
+  })
+  check(
+    'bash shows only the description',
+    await band(mod),
+    '▸ Bash Count the top five languages across your public repos',
+  )
+  check('a described command skips the model', described.log.requests.length, 0)
+
+  const bare = await fire(mod, { tool: 'Bash', command: 'ls -la | wc -l' }, { answer: 'Count the files here' })
+  check('an undescribed command asks the model', bare.log.requests.length, 1)
+  check('the model words the undescribed command', await band(mod), '✦ Bash Count the files here')
 }
 
 // ---------------------------------------------------------------------------
