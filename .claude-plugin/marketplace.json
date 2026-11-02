@@ -1,0 +1,14 @@
+{
+  "name": "intent-lens",
+  "description": "See what Claude Code is about to do, before it does it.",
+  "owner": {
+    "name": "Dhananjay"
+  },
+  "plugins": [
+    {
+      "name": "intent-lens",
+      "source": "./",
+      "description": "Shows the intent of a tool call above the prompt, and warns before destructive shell commands."
+    }
+  ]
+}
