@@ -25,7 +25,7 @@ That registers the catalog once. Install only the mods you want, below.
 See what Claude is about to do, in one line above the prompt — and a red warning before a destructive shell command.
 
 <p align="center">
-  <img src="plugins/intent-lens/assets/demo.svg" alt="Three intent lines above a prompt: a Bash build, a model-phrased edit, and a red warning before a recursive delete" width="720">
+  <img src="plugins/intent-lens/assets/screenshot-warning.png" alt="Claude Code runs rm -rf dist; intent-lens shows a red warning line, Delete dist folder and old dev logs, and a corner notice: Bash will delete files recursively" width="760">
 </p>
 
 ```

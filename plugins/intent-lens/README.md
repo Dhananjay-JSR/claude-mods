@@ -16,8 +16,14 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.svg" alt="Three intent lines above a prompt: a shell command with its stages decoded, a model-phrased edit, and a red warning before a recursive delete" width="720">
+  <img src="assets/screenshot-intent.png" alt="Claude Code runs a long find, xargs and awk pipeline; above the prompt, intent-lens reads: Bash, Survey disk usage by file type and find dist/logs, 8 steps: list files, find files, add up, sort by number, top 20" width="760">
 </p>
+
+<p align="center">
+  <img src="assets/screenshot-warning.png" alt="Claude Code runs rm -rf dist; intent-lens shows a red warning line, Delete dist folder and old dev logs, and a corner notice: Bash will delete files recursively" width="760">
+</p>
+
+<p align="center"><sub>A real Claude Code session with intent-lens loaded.</sub></p>
 
 A **Claude Mod** that shows the intent of a tool call in one line above the prompt, while the call is still pending.
 
@@ -70,6 +76,10 @@ Check it loaded with `/plugin` (Tab to **Installed**) or just run `/intent`.
 | `▸` cyan | **local** | Deterministic translation of the tool's arguments | none |
 | `✦` magenta | **model** | Claude writes the line from the tool, its arguments, and the local draft | at most 60 output tokens per call, plus the prompt |
 | `⚠` red | **risk** | Always local: a destructive shell command is never sent to the model | none |
+
+<p align="center">
+  <img src="assets/demo.svg" alt="Three intent lines above a prompt: a shell command with its stages decoded, a model-phrased edit, and a red warning before a recursive delete" width="720">
+</p>
 
 `auto` (the default) draws the local line immediately, then upgrades it with Claude for the calls that read worst — edits, unknown tools, and MCP tools. The band never sits blank while the model thinks.
 
@@ -145,7 +155,8 @@ plugins/intent-lens/
 ├── hooks/register.js            hooks, both engines, risk rules
 ├── tests/intent.test.mjs        hooks run against a stubbed API
 ├── assets/logo.svg              the mark
-└── assets/demo.svg              the band, illustrated
+├── assets/demo.svg              the band, illustrated (all three markers)
+└── assets/screenshot-*.png      a real session
 ```
 
 ## Tests
