@@ -1,13 +1,16 @@
 {
-  "name": "intent-lens",
-  "description": "See what Claude Code is about to do, before it does it.",
+  "name": "claude-mods",
+  "description": "Claude Code mods by Dhananjay.",
   "owner": {
     "name": "Dhananjay"
+  },
+  "metadata": {
+    "pluginRoot": "./plugins"
   },
   "plugins": [
     {
       "name": "intent-lens",
-      "source": "./",
+      "source": "intent-lens",
       "description": "Shows the intent of a tool call above the prompt, and warns before destructive shell commands."
     }
   ]
