@@ -173,24 +173,6 @@ Run it from this folder. The repository's CI runs the same tests and `claude plu
 - The model line is a hint about what Claude *says* it is doing; the arguments are the ground truth.
 - The band is a shared surface: it sits above whatever other mods draw, and the user can collapse it with `Ctrl+X Ctrl+A`.
 
-## Background
-
-Claude Mods are Claude Code plugins with a `modules` entry naming a TypeScript or JavaScript file whose functions run inside Claude Code's process, with hot reload.
-
-```js
-export function register(on) {
-  on('tool.call', async ($, e, next) => {
-    // e.tool is the tool name; its arguments are fields of e
-    return next(e)
-  })
-}
-```
-
-- [Mods overview](https://code.claude.com/docs/en/plugins/mods/overview)
-- [Create a mod](https://code.claude.com/docs/en/plugins/mods/create)
-- [Mods reference](https://code.claude.com/docs/en/plugins/mods/reference)
-- [Draw in the interface](https://code.claude.com/docs/en/plugins/mods/interface)
-
 ## License
 
-MIT. The lens-and-spark mark is original artwork for this project; it is not Anthropic's logo and does not imply endorsement.
+MIT.
