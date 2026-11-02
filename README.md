@@ -9,7 +9,7 @@
 <p align="center"><sub>An unofficial project. Not affiliated with or endorsed by Anthropic.</sub></p>
 
 <p align="center">
-  <img alt="Claude Code 2.1.259+" src="https://img.shields.io/badge/Claude_Code-2.1.259%2B-D97757?style=flat-square">
+  <img alt="Claude Code 2.1.287+" src="https://img.shields.io/badge/Claude_Code-2.1.287%2B-D97757?style=flat-square">
   <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-1A1614?style=flat-square">
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5FC4D4?style=flat-square">
 </p>
@@ -62,13 +62,13 @@ A mod is a Claude Code plugin whose `hooks/hooks.json` names a JavaScript module
 That wraps:
 
 ```bash
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/intent-lens
+claude --plugin-dir /path/to/intent-lens
 ```
 
 To load it without typing the flag, alias it in your shell:
 
 ```bash
-alias claude-lens='CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude --plugin-dir /path/to/intent-lens'
+alias claude-lens='claude --plugin-dir /path/to/intent-lens'
 ```
 
 Claude Code does not install a local plugin directory globally before 2.1.290; there is no `claude plugin install <dir>`. From 2.1.290, `CLAUDE_CODE_PLUGIN_DIRS` takes a `:`-separated list of plugin directories.
@@ -77,13 +77,27 @@ Check it loaded with `/plugin` (Tab to **Installed**) or just run `/intent`.
 
 ## Version requirements
 
-| Claude Code | What you need |
-| :- | :- |
-| **2.1.287+** | Nothing. Mods are on by default and the flag is ignored. (Expected, not verified on this machine.) |
-| **2.1.259 – 2.1.286** | `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1`. `run.sh` sets it. |
-| Older than 2.1.259 | Mods don't exist yet. Update Claude Code. |
+Requires **Claude Code 2.1.287 or later**, where mods load by default. `run.sh` refuses to start on anything older and prints the upgrade command.
 
-Built and verified against **2.1.273** on macOS. `claude plugin validate` passes. On this machine the account's credential answered `$.model.complete` with HTTP 403, so the model path is covered by the type declarations Claude Code wrote for that build plus the unit tests; the band, the commands, the local engine and the risk rules were run end-to-end.
+Built and verified against **2.1.309** on macOS. `claude plugin validate` passes, the tests pass, and `$.model.complete` was exercised against the real API.
+
+### Updating
+
+Installed with Homebrew:
+
+```bash
+brew update && brew upgrade --cask claude-code
+claude --version
+```
+
+To stay current without thinking about it, Homebrew's autoupdate tap can run that upgrade daily:
+
+```bash
+brew tap homebrew/autoupdate
+brew autoupdate start 86400 --upgrade --cleanup
+```
+
+That upgrades every Homebrew-managed formula and cask, not just Claude Code. Stop it with `brew autoupdate stop`.
 
 ## How the intent is worked out
 
@@ -106,7 +120,7 @@ The local engine is a pure function of the tool name and arguments — no I/O, n
 
 `Bash` is the interesting one: Claude Code's Bash tool already requires Claude to describe each command, so that description **is** the stated intent — normally buried in the tool row.
 
-The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words and hard-caps the result at 110 characters. `$.model.complete` resolves to a plain string on Claude Code 2.1.273 and to `{ isAnswered, text }` on later builds, so both are read. The request has no timeout option there, so the mod stops waiting after 1.5 seconds itself. Any failure, timeout, or refusal silently keeps the local line: the intent must never break a call.
+The model engine sends the tool name, a bounded view of the arguments (900 characters), and the local draft to `haiku`. It asks for at most 12 words and hard-caps the result at 110 characters. Some builds resolve `$.model.complete` to a plain string and others to `{ isAnswered, text }`, so both are read. The mod stops waiting after 1.5 seconds. Any failure, timeout, or refusal silently keeps the local line: the intent must never break a call.
 
 ## Risk detection
 
