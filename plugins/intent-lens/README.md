@@ -129,20 +129,6 @@ A match turns the marker red and raises a toast. It is computed locally and alwa
 - Model calls use your own Claude Code credentials and go through `$.model.complete`, exactly like any other request the session makes.
 - Headless runs (`claude -p`, Agent SDK) never raise `ui.render`, and the mod calls the model only after that event has fired, so such a run spends nothing.
 
-## Design notes
-
-A Claude Mod runs inside Claude Code's own process, so the rules are strict:
-
-- **No npm imports.** Only relative imports and the `claude-code` module, so Claude Code can read the whole mod before running it.
-- **No ambient `fs` or `fetch`.** Every side effect goes through the `$` API, which `claude plugin validate` lists.
-- **Observes, never edits.** The `tool.call` hook passes the call and its result through unchanged. The render hook wraps the band without replacing it, and the command hooks answer only their own commands. Nothing here can block, rewrite, or approve a tool call.
-
-```
-❯ ./register.js hooks: session.start, tool.call, ui.render{component=AbovePrompt}, command.run{command=intent}, command.run{command=intent-log}
-❯ ./register.js calls: $.clock.after (via withDeadline), $.command.register, $.model.complete (via modelIntent), $.store.get, $.store.set, $.ui.invalidate, $.ui.resolve, $.ui.toast
-✔ Validation passed
-```
-
 ## Layout
 
 ```
