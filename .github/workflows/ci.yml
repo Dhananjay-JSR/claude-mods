@@ -35,13 +35,15 @@ jobs:
       - name: Show the version under test
         run: claude --version
 
-      - name: Validate the mod
-        run: claude plugin validate . --strict
+      - name: Validate the marketplace and the plugin
+        run: |
+          claude plugin validate . --strict
+          claude plugin validate ./plugins/intent-lens --strict
 
       - name: Install from the marketplace
         run: |
           claude plugin marketplace add ./
-          claude plugin install intent-lens@intent-lens
+          claude plugin install intent-lens@claude-mods
           claude plugin list
 
   test:
@@ -55,10 +57,10 @@ jobs:
           node-version: 22
 
       - name: Parse the hooks module
-        run: node --check hooks/register.js
+        run: node --check plugins/intent-lens/hooks/register.js
 
       - name: Run the hook tests
-        run: node tests/intent.test.mjs
+        run: node plugins/intent-lens/tests/intent.test.mjs
 
   assets:
     name: Assets
