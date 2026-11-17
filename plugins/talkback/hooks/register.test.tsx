@@ -226,3 +226,79 @@ test('a reply is spoken while it streams, sentence by sentence, and not again wh
   await settle()
   expect(posted.length).toBe(said)
 })
+
+test('said while Claude works: a side question is answered aloud beside the task, an instruction goes to it', async ($, on) => {
+  const submitted: string[] = []
+  const spoken: string[] = []
+  const forked: string[] = []
+  on('settings.read', () => ({ value: { voiceEnabled: true } }))
+  on('store.get', () => ({ value: true }))
+  on('store.set', () => ({ value: undefined }))
+  on('ui.toast', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('command.register', () => ({ value: { command: 'talkback' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('command.run', () => ({ text: '' }))
+  on('http.fetch', (_, e) => {
+    const body = e.init?.body
+
+    if (e.url.includes('/speak') && typeof body === 'string') {
+      spoken.push(body)
+    }
+
+    return { value: { status: 200, ok: true, headers: {}, text: '' } }
+  })
+  on('prompt.submit', (_, e) => {
+    submitted.push(e.text)
+
+    return { text: e.text }
+  })
+  // The fork: it steers what changes the work, and answers the rest.
+  on('model.fork', (_, e) => {
+    forked.push(e.prompt)
+    const text = e.prompt.includes('use tabs') ? 'STEER' : 'It is four in the afternoon.'
+
+    // Cast: the usage a real reply carries is not what this test is about.
+    return { value: { isAnswered: true, text } } as never
+  })
+  let finish = () => {}
+  const working = new Promise<void>(done => {
+    finish = done
+  })
+  let speak = () => {}
+  const isLive = new Promise<void>(done => {
+    speak = done
+  })
+  on('process.spawn', async function* (_, e) {
+    if (e.argv[0] !== 'uv') {
+      return { value: { code: 0, signal: null } }
+    }
+
+    // The person speaks once hands-free is on.
+    await isLive
+    yield {
+      stream: 'stdout' as const,
+      text: 'ready\nheard: what time is it\nheard: use tabs not spaces\nheard: by the way, is it late\nheard: tell Claude, skip the docs\n',
+    }
+    await working
+
+    return { value: { code: 0, signal: null } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.turn.start({ turnId: 'working' } as Parameters<typeof $.turn.start>[0])
+  await $.command.run({ command: 'talkback', args: 'live' } as Parameters<typeof $.command.run>[0])
+  speak()
+  for (let wait = 0; wait < 8; wait += 1) {
+    await settle()
+  }
+
+  // Two went to the fork to be judged, one straight to it as an aside; "tell Claude" skipped it.
+  expect(forked.length).toBe(3)
+  expect(forked[2]?.includes('STEER')).toBe(false)
+  expect(submitted.join(' | ')).toBe('use tabs not spaces | skip the docs')
+  expect(spoken.join(' | ')).toBe('Side note. It is four in the afternoon. | Side note. It is four in the afternoon.')
+  finish()
+  await settle()
+})

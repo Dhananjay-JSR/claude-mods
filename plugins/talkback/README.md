@@ -17,6 +17,16 @@ Claude Code's `/voice` is dictation only: you can talk, but the reply is text. t
 - **Hands-free mode** (optional): the microphone stays open, and what you say is transcribed locally and submitted once you have been silent for two seconds. Then Claude answers aloud.
 - **Talk over it.** In hands-free mode the voice's own echo is cancelled out of the microphone, so you can interrupt through speakers: say "stop" and it stops, say anything else and that becomes the next prompt.
 
+## Side questions
+
+In hands-free mode, what you say while Claude is working does not have to interrupt the work. One tool-less call over the conversation so far (the same mechanism as `/btw`) decides and answers:
+
+- **A question beside the task** ("what does that flag do?") is answered aloud, starting "Side note", and shown in the transcript. The running task never sees it.
+- **An instruction for the task** ("use tabs, not spaces") is sent to the task as a message.
+- **You can decide yourself:** start with "by the way" or "quick question" for the side, or "tell Claude" for the task.
+
+The side answer comes from what is already in the conversation: it cannot run tools. If the call fails, what you said goes to the task, so nothing is lost. It is one extra model call for each thing said while Claude works.
+
 ## Install
 
 ```

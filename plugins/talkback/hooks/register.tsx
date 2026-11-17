@@ -28,6 +28,13 @@ const DICTATED_PROMPTS = `The person's messages are dictated and sent as soon as
 const ASKS_FOR_ALL =
   /\b(complete(ly)?|entire(ly)?|whole|in full|full(y)?|everything|all of it|in detail|detailed|word for word|read it all|(not|without) (just )?a summary)\b/i
 
+// Said while Claude is working: these go to the side, whatever they ask...
+const ASKS_ASIDE = /^(by the way|btw|quick question|side question)\b[,:.]?\s*/i
+// ...and these to the running task.
+const TELLS_CLAUDE = /^tell claude\b[,:.]?\s*/i
+
+const ANSWER_ASIDE = `Answer it now, from what you already know, in two or three plain spoken sentences: no markdown, code, lists or file paths.`
+
 const SAYS_STOP = /^(stop|quiet|be quiet|enough)[.!]?$/i
 // Over the voice a word or two of the voice itself may lead the transcript.
 const SAYS_STOP_OVER = /^(\S+\s+){0,2}(stop|stop it|stop talking|be quiet|quiet|enough|shut up|pause)[.!?]*$/i
@@ -173,6 +180,8 @@ let wantsAll = false
 // Whether Claude was told to open with a spoken summary: another plugin can skip that hook,
 // and then the opening paragraph is not a summary and `brief` would read too little.
 let isToldToSummarize = false
+// A turn of the main conversation is running: what is said now may be a side question.
+let isWorking = false
 
 const post = ($: EngineInterface, path: string, body?: string) =>
   $.http.fetch(`${SERVER}/${path}`, { method: 'POST', body }).catch(() => undefined)
@@ -311,6 +320,31 @@ const utter = ($: EngineInterface, reading: Reading, settings: Settings, length:
   void say($, text, settings)
 }
 
+// Said while Claude is working. One call over the conversation so far, with no tools and
+// no trace in the running task, both decides and answers: an instruction for the work
+// in progress goes to the task, anything else is answered aloud beside it.
+const aside = async ($: EngineInterface, said: string, settings: Settings) => {
+  const question = said.replace(ASKS_ASIDE, '')
+  const isSurelyAside = question !== said
+  const reply = await $.model.fork({
+    prompt: isSurelyAside
+      ? `The person asked this aloud, beside the task you are in the middle of: "${question}"\n\n${ANSWER_ASIDE}`
+      : `The person said this aloud while you are in the middle of the task: "${said}"\n\nIf it is an instruction that should change, add to or stop the work in progress, reply with the single word STEER and nothing else. Otherwise: ${ANSWER_ASIDE}`,
+  })
+
+  // No answer (nothing to fork yet, an error) or an instruction: the task gets it, so nothing said is lost.
+  if (!reply.isAnswered || (!isSurelyAside && /^\W*steer\W*$/i.test(reply.text))) {
+    await $.prompt.submit({ text: said, asUser: true })
+
+    return
+  }
+
+  $.ui.log(`Side question: ${question}\n${reply.text}`)
+  // The running task's reply may be heard again once the aside has been said.
+  isMuted = false
+  await speak($, `Side note. ${reply.text}`, settings, 'full')
+}
+
 // One line of the server's feed.
 const heed = async ($: EngineInterface, line: string, settings: Settings) => {
   if (line.startsWith('progress: ')) {
@@ -341,7 +375,11 @@ const heed = async ($: EngineInterface, line: string, settings: Settings) => {
     } else if (ASKS_FOR_MORE.test(text) && lastAnswer !== '') {
       await speak($, lastAnswer, settings, 'full')
     } else if (await read($, isLive)) {
-      await $.prompt.submit({ text, asUser: true })
+      if (isWorking && !TELLS_CLAUDE.test(text)) {
+        await aside($, text, settings)
+      } else {
+        await $.prompt.submit({ text: text.replace(TELLS_CLAUDE, ''), asUser: true })
+      }
     }
   }
 }
@@ -522,6 +560,12 @@ export const register: Register = (on, options) => {
     }
   })
 
+  on('turn.start', ($, e, next) => {
+    isWorking = isWorking || e.agentId === undefined
+
+    return next(e)
+  })
+
   // The reply is spoken while it is still being written: each sentence as it is finished.
   on('turn.step', async function* ($, e, next) {
     const isHeard = e.agentId === undefined && (await isActive($))
@@ -551,6 +595,7 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const isMainAnswer = e.agentId === undefined && e.reason === 'answer'
+    isWorking = isWorking && e.agentId !== undefined
 
     if (isMainAnswer && (await isActive($))) {
       lastAnswer = e.answer
