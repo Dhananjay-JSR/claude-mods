@@ -66,6 +66,29 @@ pause_blocks = 20
 # The room still rings for a moment after the voice ends.
 deaf_until = 0.0
 ears = None
+listener = None
+# The words the voice said lately, and until when the microphone may still be hearing
+# them: a transcript made of those words is the voice itself, not the person.
+recent = collections.deque(maxlen=150)
+own_until = 0.0
+# What speech recognition makes of a cough or a quiet room.
+NOTHING_SAID = re.compile(r"(thank you|thanks|thank you for watching|thanks for watching|bye|you|so)?[\s.!?,]*", re.I)
+STOP_SAID = re.compile(r"(\S+\s+){0,2}(stop|stop it|stop talking|be quiet|quiet|enough|shut up|pause)[.!?]*", re.I)
+
+
+def wording(text: str) -> list:
+    return re.findall(r"[^\W_]+(?:'[^\W_]+)?", text.lower())
+
+
+def is_own_voice(text: str) -> bool:
+    """Whether a transcript is the voice's own words coming back through the microphone."""
+    if not (is_playing or time.monotonic() < own_until) or STOP_SAID.fullmatch(text.strip()):
+        return False
+    heard, said = wording(text), list(recent)
+    if len(heard) < 2:
+        return all(word in said for word in heard)
+    pairs = set(zip(said, said[1:]))
+    return sum(pair in pairs for pair in zip(heard, heard[1:])) / (len(heard) - 1) >= 0.3
 
 
 def emit(line: str) -> None:
@@ -99,11 +122,12 @@ def fetch(url: str, name: str, label: str) -> str:
 
 def say(kokoro, sounddevice) -> None:
     """Says what is waiting, in order, for as long as the server lives."""
-    global is_playing, deaf_until
+    global is_playing, deaf_until, own_until
     import numpy
 
     while True:
         mine, text, voice, lang = waiting.get()
+        recent.extend(wording(text))
         # One sentence at a time: the first is heard while the rest are still made.
         for sentence in re.split(r"(?<=[.!?:])\s+", text):
             if mine != generation:
@@ -129,6 +153,7 @@ def say(kokoro, sounddevice) -> None:
         if mine == generation and waiting.empty():
             is_playing = False
             deaf_until = time.monotonic() + 0.3
+            own_until = time.monotonic() + 6
             rest()
 
 
@@ -291,6 +316,8 @@ def listen(sounddevice) -> None:
                         early = None
                         thread.join()
                         text = result[0] if result and re.search(r"\w", result[0]) else ""
+                    if NOTHING_SAID.fullmatch(text.strip()) or is_own_voice(text):
+                        text = ""
                     if is_over_voice and not text:
                         # Nobody spoke: some of the voice got past the canceller. It goes on.
                         margin = min(8.0, margin * 1.5)
@@ -309,7 +336,7 @@ def listen(sounddevice) -> None:
 
 
 def main() -> None:
-    global generation, is_playing, is_listening, has_headphones, language
+    global generation, is_playing, is_listening, has_headphones, language, listener
     if "--remove" in sys.argv:
         shutil.rmtree(CACHE, ignore_errors=True)
         return
@@ -332,7 +359,7 @@ def main() -> None:
             self.answer(200 if self.path == "/health" else 404)
 
         def do_POST(self) -> None:
-            global generation, is_playing, is_paused, is_listening, has_headphones, language, pause_blocks
+            global generation, is_playing, is_paused, is_listening, has_headphones, language, pause_blocks, listener, own_until
             url = urlparse(self.path)
             query = {key: values[0] for key, values in parse_qs(url.query).items()}
             if url.path == "/listen":
@@ -342,8 +369,10 @@ def main() -> None:
                 pause_blocks = max(EARLY_BLOCKS + 1, min(60, round(float(query.get("pause", "2")) * 10)))
                 # Whisper names a language by its first part: en-us is en, Mandarin is zh.
                 language = {"cmn": "zh"}.get(query.get("lang", "en"), query.get("lang", "en").split("-")[0])
-                if is_listening and not was_listening:
-                    threading.Thread(target=listen, args=(sounddevice,), daemon=True).start()
+                # One listener at most: one still closing the microphone carries on if asked back.
+                if is_listening and not (listener and listener.is_alive()):
+                    listener = threading.Thread(target=listen, args=(sounddevice,), daemon=True)
+                    listener.start()
                 if not is_listening:
                     rest()
                 return self.answer(200)
@@ -361,6 +390,7 @@ def main() -> None:
             else:
                 generation += 1
                 is_playing = is_paused = False
+                own_until = time.monotonic() + 6
                 rest()
             self.answer(200)
 

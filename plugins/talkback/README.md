@@ -74,6 +74,7 @@ Set in `/config`:
 
 - **Permission prompts are spoken, not answerable by voice.** A misheard "yes" could approve a destructive command, so approving stays on the keyboard.
 - **Hands-free submits what it hears.** Claude is told the prompts are dictated and to ask before acting on an ambiguous request, but read the transcript when it matters.
+- **Hearing itself.** Echo cancelling is not perfect, so a transcript made of the words the voice just said is discarded, as are the phrases speech recognition invents from noise ("Thank you."). The system voice cannot be cancelled, so the microphone closes while it talks.
 - **Speech detection is by loudness** against the room's noise. A fan or music can open the microphone.
 - **One session owns the microphone:** the one that started the server. Others speak through it but get no transcripts. The server stops with that session.
 - **Verified on macOS only.** The Linux and Windows voice commands have not been run on real machines; on Linux the neural voice also needs the PortAudio library (`libportaudio2`).

@@ -182,13 +182,15 @@ let wantsAll = false
 let isToldToSummarize = false
 // A turn of the main conversation is running: what is said now may be a side question.
 let isWorking = false
+// The system voice is talking: the server cannot take it out of the microphone, so the microphone is closed.
+let isSystemTalking = false
 
 const post = ($: EngineInterface, path: string, body?: string) =>
   $.http.fetch(`${SERVER}/${path}`, { method: 'POST', body }).catch(() => undefined)
 
 // Opens or closes the microphone to match hands-free mode.
 const listen = async ($: EngineInterface, { lang, hasHeadphones, pause }: Settings) => {
-  const isOn = (await read($, isLive)) && (await isActive($))
+  const isOn = !isSystemTalking && (await read($, isLive)) && (await isActive($))
 
   return post(
     $,
@@ -235,6 +237,23 @@ const voice = async ($: EngineInterface, text: string, settings: Settings, mine:
     void serveLater($, settings)
   }
 
+  if (!(await read($, isLive))) {
+    return voiceOfSystem($, text, mine)
+  }
+
+  isSystemTalking = true
+
+  try {
+    await listen($, settings)
+    await voiceOfSystem($, text, mine)
+  } finally {
+    isSystemTalking = false
+    await listen($, settings)
+  }
+}
+
+// Says one piece of text with the first system voice this machine has.
+const voiceOfSystem = async ($: EngineInterface, text: string, mine: number) => {
   for (const argv of systemVoice === undefined ? SYSTEM_VOICES : [systemVoice]) {
     try {
       const child = $.process.spawn({ argv, input: text })

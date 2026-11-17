@@ -1,6 +1,6 @@
 {
   "name": "talkback",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Hands-free Claude Code: Claude speaks its replies and, in live mode, listens for yours. All speech runs on this machine, on macOS, Linux and Windows",
   "author": {
     "name": "Dhananjay"
