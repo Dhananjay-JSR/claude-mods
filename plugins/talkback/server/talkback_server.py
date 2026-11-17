@@ -9,12 +9,15 @@ replacing whatever was being said. POST /stop goes quiet. POST /listen?on=1
 opens the microphone: each thing the person says is transcribed with Whisper
 and printed as `heard: <text>` once they have been silent for ?pause= seconds
 (a shorter pause mid-sentence is waited out); ?on=0 closes it.
-GET /health answers once the voice is loaded. Lines on standard output
+GET /health answers once the voice is loaded. POST /quit ends the server, and
+running this script with --remove deletes the downloaded models. Lines on standard output
 (`ready`, `progress: <what>|<percent>`, `state: ...`, `heard: ...`) are the mod's feed.
 Nothing leaves the machine after the first downloads.
 """
 import collections
+import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -178,6 +181,9 @@ def listen(sounddevice) -> None:
 
 def main() -> None:
     global generation, is_playing, is_listening, has_headphones, language
+    if "--remove" in sys.argv:
+        shutil.rmtree(CACHE, ignore_errors=True)
+        return
     try:
         server = ThreadingHTTPServer(("127.0.0.1", PORT), None)
     except OSError:
@@ -212,6 +218,9 @@ def main() -> None:
                 if not is_listening:
                     rest()
                 return self.answer(200)
+            if url.path == "/quit":
+                self.answer(200)
+                os._exit(0)
             if url.path not in ("/speak", "/stop"):
                 return self.answer(404)
             generation += 1

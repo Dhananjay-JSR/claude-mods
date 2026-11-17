@@ -264,6 +264,19 @@ const goLive = async ($: EngineInterface, isOn: boolean, settings: Settings) => 
   await listen($, settings)
 }
 
+// Deletes the downloaded models and goes back to the system voice.
+const remove = async ($: EngineInterface, settings: Settings) => {
+  await goLive($, false, settings)
+  await $.store.set('neural', false)
+  // The server first: a model file it holds open cannot be deleted on Windows.
+  await post($, 'quit')
+  const removed = await $.process
+    .run(['uv', 'run', `${$.plugin.root}/server/talkback_server.py`, '--remove'], { timeoutMs: 120000 })
+    .catch(() => undefined)
+
+  return removed?.exitCode === 0
+}
+
 export const register: Register = (on, options) => {
   const settings: Settings = {
     voice: typeof options.voice === 'string' ? options.voice : 'af_heart',
@@ -277,7 +290,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'talkback',
       description:
-        'Toggle spoken replies. "live": hands-free, your speech is sent as prompts. "init": the neural voice. "system": the system voice. "stop": quiet now',
+        'Toggle spoken replies. "live": hands-free, your speech is sent as prompts. "init": the neural voice. "system": the system voice. "remove": delete the downloaded models. "stop": quiet now',
     })
 
     if (await isNeural($)) {
@@ -312,6 +325,14 @@ export const register: Register = (on, options) => {
       void serve($, settings)
 
       return { text: 'Neural voice on: it is loading, and the system voice speaks until it is ready.' }
+    }
+
+    if (choice === 'remove') {
+      return {
+        text: (await remove($, settings))
+          ? 'Models removed (about 600 MB freed). The system voice speaks from here.'
+          : 'Could not remove the models: delete ~/.cache/talkback by hand.',
+      }
     }
 
     if (choice === 'system') {
@@ -403,6 +424,16 @@ export const register: Register = (on, options) => {
           label={isHandsFree ? 'Mic on: hands-free' : 'Mic off: go hands-free'}
           onPress={() => goLive($, !isHandsFree, settings)}
         />
+        {(await isNeural($)) && (
+          <Button
+            key="remove"
+            label="Remove models"
+            onPress={async () => {
+              const isRemoved = await remove($, settings)
+              $.ui.toast(isRemoved ? 'talkback: models removed' : 'talkback: could not remove the models')
+            }}
+          />
+        )}
       </Box>
     )
   })

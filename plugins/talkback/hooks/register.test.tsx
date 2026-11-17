@@ -112,6 +112,12 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
 
     return { value: { code: 0, signal: null } }
   })
+  const ran: string[] = []
+  on('process.run', (_, e) => {
+    ran.push(e.argv.join(' '))
+
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('command.run', () => ({ text: '' }))
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
@@ -141,4 +147,9 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
   expect(submitted[0]?.includes('"asUser":true')).toBe(true)
   expect(posted.includes('listen?on=1&lang=en-us&headphones=0&pause=2')).toBe(true)
   expect(posted.at(-1)).toBe('stop')
+
+  // Removing the models closes the microphone, ends the server, then deletes them.
+  await $.command.run({ command: 'talkback', args: 'remove' } as Parameters<typeof $.command.run>[0])
+  expect(posted.slice(-2).join(' ')).toBe('listen?on=0&lang=en-us&headphones=0&pause=2 quit')
+  expect(ran.at(-1)?.endsWith('talkback_server.py --remove')).toBe(true)
 })
