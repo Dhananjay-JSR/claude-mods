@@ -1,7 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 
 const TURN = { durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as const
-const settle = () => new Promise(done => setTimeout(done, 50))
+// The hooks environment has timers; its typings do not declare this one.
+declare const setTimeout: (run: () => void, ms: number) => unknown
+const settle = () => new Promise<void>(done => setTimeout(done, 50))
 
 test('a reply is spoken by the first voice the machine has, code skipped, only while voice is on', async ($, on) => {
   const ran: string[] = []
@@ -107,7 +109,8 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
   on('command.run', () => ({ text: '' }))
 
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.command.run({ command: 'talkback', args: 'live' })
+  // Cast: a newer build's typings ask a test for the fields the engine stamps.
+  await $.command.run({ command: 'talkback', args: 'live' } as Parameters<typeof $.command.run>[0])
   await settle()
   await settle()
   await settle()

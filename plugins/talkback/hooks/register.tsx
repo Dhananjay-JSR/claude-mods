@@ -80,8 +80,7 @@ const spoken = (markdown: string, length: string) => {
 }
 
 const isActive = async ($: EngineInterface) =>
-  (await read($, override)) ??
-  (await $.settings.read({ key: 'voiceEnabled' })) === true
+  (await read($, override)) ?? (await $.settings.read()).voiceEnabled === true
 
 const isNeural = async ($: EngineInterface) => (await $.store.get('neural')) === true
 
