@@ -118,6 +118,6 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
   expect(submitted.length).toBe(1)
   expect(submitted[0]?.startsWith('run the tests (')).toBe(true)
   expect(submitted[0]?.includes('"asUser":true')).toBe(true)
-  expect(posted.includes('listen?on=1&lang=en-us&headphones=0')).toBe(true)
+  expect(posted.includes('listen?on=1&lang=en-us&headphones=0&pause=2')).toBe(true)
   expect(posted.at(-1)).toBe('stop')
 })

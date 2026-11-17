@@ -1,6 +1,6 @@
 {
   "name": "talkback",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Hands-free Claude Code: Claude speaks its replies and, in live mode, listens for yours. All speech runs on this machine, on macOS, Linux and Windows",
   "author": {
     "name": "Dhananjay"
@@ -35,6 +35,12 @@
       "title": "Headphones",
       "description": "On: the microphone stays open while Claude speaks, so talking over the voice interrupts it. Leave off with speakers, or Claude hears itself.",
       "default": false
+    },
+    "pause": {
+      "type": "number",
+      "title": "Pause before sending",
+      "description": "Hands-free: seconds of silence that end what you are saying. Raise it if you are cut off while thinking; lower it for a quicker reply.",
+      "default": 2
     }
   }
 }

@@ -14,7 +14,7 @@ Claude Code's `/voice` is dictation only: you can talk, but the reply is text. t
 - **Follows `/voice`.** Spoken replies are on whenever `/voice` is on. `/talkback` flips them for the session.
 - **Speaks permission prompts and idle nudges,** so you hear from across the room when Claude needs you.
 - **Stops when you take over:** the `Stop` button above the prompt, a new prompt, or `/talkback stop` cuts the voice mid-word.
-- **Hands-free mode** (optional): the microphone stays open, and what you say is transcribed locally and submitted after a one-second pause. Then Claude answers aloud and the microphone opens again.
+- **Hands-free mode** (optional): the microphone stays open, and what you say is transcribed locally and submitted once you have been silent for two seconds. Then Claude answers aloud and the microphone opens again.
 
 ## Install
 
@@ -52,6 +52,7 @@ Set in `/config`:
 | Spoken length | `brief` | `brief`: Claude is asked to open each reply with a short spoken paragraph, and only that is read. `normal`: the first 600 characters. `full`: everything |
 | Neural voice | `af_heart` | Any Kokoro voice (`am_michael`, `bf_emma`, `hf_alpha` for Hindi, ...) |
 | Neural language | `en-us` | Also the language the ears expect (`hi`, `es`, `fr-fr`, `ja`, ...) |
+| Pause before sending | `2` | Hands-free: seconds of silence that end what you are saying. A shorter pause mid-sentence is waited out |
 | Headphones | off | On: the microphone stays open while Claude speaks, so talking over the voice interrupts it. With speakers, leave it off or Claude hears itself |
 
 ## Limits

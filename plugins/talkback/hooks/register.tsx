@@ -8,7 +8,7 @@ const override = atom({ plugin: 'talkback', key: 'override' } as const, null)
 const isLive = atom({ plugin: 'talkback', key: 'isLive' } as const, false)
 const status = atom({ plugin: 'talkback', key: 'status' } as const, 'idle')
 
-type Settings = { voice: string; lang: string; length: string; hasHeadphones: boolean }
+type Settings = { voice: string; lang: string; length: string; hasHeadphones: boolean; pause: number }
 
 // A listener cannot skim: past this many characters the rest stays on screen.
 const SPOKEN_LIMIT = 600
@@ -96,12 +96,12 @@ const post = ($: EngineInterface, path: string, body?: string) =>
   $.http.fetch(`${SERVER}/${path}`, { method: 'POST', body }).catch(() => undefined)
 
 // Opens or closes the microphone to match hands-free mode.
-const listen = async ($: EngineInterface, { lang, hasHeadphones }: Settings) => {
+const listen = async ($: EngineInterface, { lang, hasHeadphones, pause }: Settings) => {
   const isOn = (await read($, isLive)) && (await isActive($))
 
   return post(
     $,
-    `listen?on=${isOn ? 1 : 0}&lang=${encodeURIComponent(lang)}&headphones=${hasHeadphones ? 1 : 0}`,
+    `listen?on=${isOn ? 1 : 0}&lang=${encodeURIComponent(lang)}&headphones=${hasHeadphones ? 1 : 0}&pause=${pause}`,
   )
 }
 
@@ -259,6 +259,7 @@ export const register: Register = (on, options) => {
     lang: typeof options.lang === 'string' ? options.lang : 'en-us',
     length: typeof options.length === 'string' ? options.length : 'brief',
     hasHeadphones: options.headphones === true,
+    pause: typeof options.pause === 'number' ? options.pause : 2,
   }
 
   on('session.start', async ($, e, next) => {

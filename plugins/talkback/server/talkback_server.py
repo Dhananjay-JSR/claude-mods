@@ -7,7 +7,8 @@
 POST /speak (the text as the body, ?voice= and ?lang=) speaks it with Kokoro,
 replacing whatever was being said. POST /stop goes quiet. POST /listen?on=1
 opens the microphone: each thing the person says is transcribed with Whisper
-and printed as `heard: <text>` for the mod to submit; ?on=0 closes it.
+and printed as `heard: <text>` once they have been silent for ?pause= seconds
+(a shorter pause mid-sentence is waited out); ?on=0 closes it.
 GET /health answers once the voice is loaded. Lines on standard output
 (`ready`, `downloading ...`, `state: ...`, `heard: ...`) are the mod's feed.
 Nothing leaves the machine after the first downloads.
@@ -27,8 +28,9 @@ FILES = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-fil
 CACHE = Path.home() / ".cache" / "talkback"
 MIC_RATE = 16000
 BLOCK = MIC_RATE // 10
-# How long a pause ends what the person is saying, in tenths of a second.
-PAUSE_BLOCKS = 10
+# A pause this long, in tenths of a second, starts transcribing what was said so
+# far, so the text is ready by the time the longer pause that sends it has passed.
+EARLY_BLOCKS = 7
 
 # Bumped by every /speak and /stop: a stale utterance says no further sentence.
 generation = 0
@@ -37,6 +39,9 @@ is_listening = False
 # With headphones the microphone cannot hear the voice, so the person may talk over it.
 has_headphones = False
 language = "en"
+# How long a silence ends what the person is saying, in tenths of a second: long
+# enough to stop and think mid-sentence.
+pause_blocks = 20
 # The room still rings for a moment after the voice ends.
 deaf_until = 0.0
 ears = None
@@ -110,11 +115,13 @@ def listen(sounddevice) -> None:
     lead = collections.deque(maxlen=3)
     said = []
     quiet = 0
+    # The transcription begun at the short pause: its thread and where its text lands.
+    early = None
     with sounddevice.InputStream(samplerate=MIC_RATE, channels=1, dtype="float32") as mic:
         while is_listening:
             block = mic.read(BLOCK)[0][:, 0].copy()
             if (is_playing and not has_headphones) or time.monotonic() < deaf_until:
-                said, quiet = [], 0
+                said, quiet, early = [], 0, None
                 continue
             level = float(numpy.sqrt(numpy.mean(block**2)))
             is_speech = level > max(0.012, noise * 3)
@@ -126,19 +133,30 @@ def listen(sounddevice) -> None:
                         # Talked over: the voice yields.
                         generation += 1
                         is_playing = False
+                elif early:
+                    # The person went on after a pause: that text was only the first half.
+                    early = None
+                    emit("state: hearing")
                 said.append(block)
                 quiet = 0
             elif said:
                 said.append(block)
                 quiet += 1
-                if quiet >= PAUSE_BLOCKS:
+                if quiet == EARLY_BLOCKS and len(said) > EARLY_BLOCKS + 3:
+                    emit("state: transcribing")
+                    result = []
                     clip = numpy.concatenate(said)
+                    thread = threading.Thread(target=lambda: result.append(transcribe(numpy, clip)), daemon=True)
+                    thread.start()
+                    early = (thread, result)
+                if quiet >= pause_blocks:
                     said, quiet = [], 0
-                    if len(clip) > MIC_RATE * (PAUSE_BLOCKS / 10 + 0.3):
-                        emit("state: transcribing")
-                        text = transcribe(numpy, clip)
-                        if re.search(r"\w", text):
-                            emit(f"heard: {text}")
+                    if early:
+                        thread, result = early
+                        early = None
+                        thread.join()
+                        if result and re.search(r"\w", result[0]):
+                            emit(f"heard: {result[0]}")
                     rest()
             else:
                 noise = 0.95 * noise + 0.05 * level
@@ -163,13 +181,14 @@ def main() -> None:
             self.answer(200 if self.path == "/health" else 404)
 
         def do_POST(self) -> None:
-            global generation, is_playing, is_listening, has_headphones, language
+            global generation, is_playing, is_listening, has_headphones, language, pause_blocks
             url = urlparse(self.path)
             query = {key: values[0] for key, values in parse_qs(url.query).items()}
             if url.path == "/listen":
                 was_listening = is_listening
                 is_listening = query.get("on") == "1"
                 has_headphones = query.get("headphones") == "1"
+                pause_blocks = max(EARLY_BLOCKS + 1, min(60, round(float(query.get("pause", "2")) * 10)))
                 # Whisper names a language by its first part: en-us is en, Mandarin is zh.
                 language = {"cmn": "zh"}.get(query.get("lang", "en"), query.get("lang", "en").split("-")[0])
                 if is_listening and not was_listening:
