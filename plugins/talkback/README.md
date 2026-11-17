@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="talkback: a coral speech bubble with a sound wave inside it" width="112" height="112">
+</p>
+
 <h1 align="center">talkback</h1>
 
 <p align="center"><em>Claude Code that talks back, and listens. All speech runs on your machine.</em></p>
