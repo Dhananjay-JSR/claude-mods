@@ -12,6 +12,11 @@
       "name": "intent-lens",
       "source": "intent-lens",
       "description": "Shows the intent of a tool call above the prompt, and warns before destructive shell commands."
+    },
+    {
+      "name": "talkback",
+      "source": "talkback",
+      "description": "Speaks Claude's replies aloud whenever /voice is on, with an optional local neural voice and a hands-free mode. All speech runs on your machine."
     }
   ]
 }
