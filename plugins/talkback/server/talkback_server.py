@@ -72,7 +72,9 @@ listener = None
 recent = collections.deque(maxlen=150)
 own_until = 0.0
 # What speech recognition makes of a cough or a quiet room.
-NOTHING_SAID = re.compile(r"(thank you|thanks|thank you for watching|thanks for watching|bye|you|so)?[\s.!?,]*", re.I)
+NOTHING_SAID = re.compile(
+    r"((thank you|thanks)( very much| so much)?( for (watching|listening|your time))?|bye|you|you will|so|okay)?[\s.!?,]*", re.I
+)
 STOP_SAID = re.compile(r"(\S+\s+){0,2}(stop|stop it|stop talking|be quiet|quiet|enough|shut up|pause)[.!?]*", re.I)
 
 
@@ -168,7 +170,8 @@ def transcribe(numpy, clip) -> str:
         ears = WhisperModel(str(CACHE / "whisper-small"), device="cpu", compute_type="int8")
     # vad_filter drops a clip that was a door or a cough, not words.
     segments, _ = ears.transcribe(clip, language=language, vad_filter=True, beam_size=1)
-    return " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.6).strip()
+    # A segment the ears are unsure of is more often invented than misheard.
+    return " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.5 and s.avg_logprob > -1.0).strip()
 
 
 def listen(sounddevice) -> None:
@@ -224,6 +227,9 @@ def listen(sounddevice) -> None:
     lead = collections.deque(maxlen=4)
     said = []
     quiet = 0
+    # How many tenths of a second of what is being captured were loud enough to be speech:
+    # a click or a cough is too short to be words, and the ears would invent some.
+    voiced = 0
     # The transcription begun at the short pause: its thread and where its text lands.
     early = None
     # Talking over the voice: for how long the microphone has heard more than the voice
@@ -277,12 +283,12 @@ def listen(sounddevice) -> None:
                 if over >= 3:
                     # The voice holds its breath while what was heard is checked for words.
                     is_paused, is_over_voice, over = True, True, 0
-                    said = list(lead)
+                    said, voiced = list(lead), 3
                     emit("state: hearing")
                 continue
             if is_speech:
                 if not said:
-                    said = list(lead)
+                    said, voiced = list(lead), 0
                     emit("state: hearing")
                     if is_playing:
                         # Talked over, with headphones on: the voice yields at once.
@@ -293,6 +299,7 @@ def listen(sounddevice) -> None:
                     early = None
                     emit("state: hearing")
                 said.append(block)
+                voiced += 1
                 quiet = 0
             elif said:
                 said.append(block)
@@ -316,7 +323,7 @@ def listen(sounddevice) -> None:
                         early = None
                         thread.join()
                         text = result[0] if result and re.search(r"\w", result[0]) else ""
-                    if NOTHING_SAID.fullmatch(text.strip()) or is_own_voice(text):
+                    if voiced < 3 or NOTHING_SAID.fullmatch(text.strip()) or is_own_voice(text):
                         text = ""
                     if is_over_voice and not text:
                         # Nobody spoke: some of the voice got past the canceller. It goes on.
