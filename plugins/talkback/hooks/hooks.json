@@ -1,0 +1,4 @@
+{
+  "description": "talkback: speaks each reply aloud, locally, while voice mode is on",
+  "modules": ["./register.tsx"]
+}
