@@ -42,7 +42,10 @@ A progress bar above the prompt shows each download. After the first download no
 | `/talkback init` | Use the neural voice, downloading and warming it |
 | `/talkback system` | Go back to the system voice |
 | `/talkback remove` | Delete the downloaded models (about 600 MB) and go back to the system voice; also a button above the prompt |
+| `/talkback more` | Read the last reply again, in full |
 | `/talkback stop` | Quiet now |
+
+Whatever the Spoken length, a prompt that asks for all of it ("explain it completely", "in detail", "not just a summary") is read in full, and after a short reading, saying "read the rest" or "continue" in hands-free mode reads the last reply in full.
 
 ## Options
 

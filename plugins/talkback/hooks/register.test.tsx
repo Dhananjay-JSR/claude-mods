@@ -38,6 +38,9 @@ test('a reply is spoken by the first voice the machine has, code skipped, only w
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('turn.complete', (_, e) => ({ text: e.answer }))
+  on('prompt.compose', () => ({ sections: [] }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('command.run', () => ({ text: '' }))
 
   await $.turn.complete({ ...TURN, answer: 'Silent.' })
   await settle()
@@ -50,7 +53,8 @@ test('a reply is spoken by the first voice the machine has, code skipped, only w
   })
   await settle()
   expect(ran.join(' | ')).toBe(
-    'say: Fixed the bug in a b. See docs. | espeak-ng: Fixed the bug in a b. See docs.',
+    // Claude was never told to open with a summary here, so more than the opening is read.
+    'say: Fixed the bug in a b. See docs. Code block. Done! | espeak-ng: Fixed the bug in a b. See docs. Code block. Done!',
   )
 
   // The voice that spoke is kept, a long reply is cut short, a subagent's answer is not the reply.
@@ -59,6 +63,7 @@ test('a reply is spoken by the first voice the machine has, code skipped, only w
   await settle()
   expect(ran.length).toBe(3)
   expect(ran[2]?.startsWith('espeak-ng: Short. Long')).toBe(true)
+  expect(ran[2]?.endsWith('More on screen.')).toBe(true)
   expect((ran[2]?.length ?? 0) < 700).toBe(true)
 
   // After /talkback init the warm neural voice speaks, and the system voice stays quiet.
@@ -68,10 +73,34 @@ test('a reply is spoken by the first voice the machine has, code skipped, only w
   expect(ran.length).toBe(3)
   expect(posted.at(-1)).toBe('http://127.0.0.1:47821/speak?voice=af_heart&lang=en-us: Neural now.')
 
-  // brief, the default: only the opening paragraph is read.
-  await $.turn.complete({ ...TURN, answer: 'All twelve tests pass.\n\n## Details\n\n- `a.ts` changed' })
+  // brief, the default: once Claude has been told to open with a spoken summary, only that is read.
+  await $.prompt.compose({
+    model: 'model',
+    promptModel: 'model',
+    surfaces: ['terminal'],
+    tools: [],
+    outputStyle: { name: 'default', isKeepingCodingInstructions: true },
+    traits: [],
+  } as Parameters<typeof $.prompt.compose>[0])
+  const reply = 'All twelve tests pass.\n\n## Details\n\n- `a.ts` changed'
+  await $.turn.complete({ ...TURN, answer: reply })
   await settle()
   expect(posted.at(-1)?.endsWith(': All twelve tests pass.')).toBe(true)
+
+  // A prompt that asks for all of it gets all of it, for that turn.
+  await $.prompt.submit({ text: 'Explain it completely, not just a summary' })
+  await $.turn.complete({ ...TURN, answer: reply })
+  await settle()
+  expect(posted.at(-1)?.endsWith(': All twelve tests pass. Details a.ts changed')).toBe(true)
+
+  // And /talkback more reads the last reply in full after a brief reading.
+  await $.prompt.submit({ text: 'thanks' })
+  await $.turn.complete({ ...TURN, answer: reply })
+  await settle()
+  expect(posted.at(-1)?.endsWith(': All twelve tests pass.')).toBe(true)
+  await $.command.run({ command: 'talkback', args: 'more' } as Parameters<typeof $.command.run>[0])
+  await settle()
+  expect(posted.at(-1)?.endsWith(': All twelve tests pass. Details a.ts changed')).toBe(true)
 })
 
 test('hands-free: what the server hears is submitted as the person, and "stop" only stops', async ($, on) => {

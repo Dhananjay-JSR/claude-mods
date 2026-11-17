@@ -21,6 +21,14 @@ const SPOKEN_REPLIES = `The person is listening, not reading: a text-to-speech v
 
 const DICTATED_PROMPTS = `The person's messages are dictated and sent as soon as they pause, so read past likely mis-hearings, and when a request to change or delete something is ambiguous, ask before acting on it.`
 
+// A prompt that asks for the whole answer is answered in full, whatever the length setting.
+const ASKS_FOR_ALL =
+  /\b(complete(ly)?|entire(ly)?|whole|in full|full(y)?|everything|all of it|in detail|detailed|word for word|read it all|(not|without) (just )?a summary)\b/i
+
+// Said or typed after a short reading: the last reply again, all of it.
+const ASKS_FOR_MORE =
+  /^(please )?((read|say|tell me|give me) (it all|the rest|everything|all of it|more|the whole thing)|continue|go on|keep going|more|read on)[.!]?$/i
+
 const STATUS: Record<Status, string> = {
   idle: '',
   listening: '● listening',
@@ -61,6 +69,7 @@ const sentences = (markdown: string) =>
     .replace(/```[\s\S]*?(```|$)/g, '\nCode block.\n')
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/https?:\/\/\S+/g, 'link')
+    .replace(/^\s*[-*+]\s+/gm, '')
     .replace(/[`*]/g, '')
     .replace(/[_#>|]|^\s*[-:| ]{3,}$/gm, ' ')
     .split(/(?<=[.!?:])\s+|\n+/)
@@ -99,6 +108,13 @@ let generation = 0
 let speaking: string | undefined
 let systemVoice: readonly string[] | undefined
 let isServing = false
+// The reply last spoken, for "read the rest".
+let lastAnswer = ''
+// This turn's prompt asked for all of it.
+let wantsAll = false
+// Whether Claude was told to open with a spoken summary: another plugin can skip that hook,
+// and then the opening paragraph is not a summary and `brief` would read too little.
+let isToldToSummarize = false
 
 const post = ($: EngineInterface, path: string, body?: string) =>
   $.http.fetch(`${SERVER}/${path}`, { method: 'POST', body }).catch(() => undefined)
@@ -130,6 +146,64 @@ const stop = async ($: EngineInterface) => {
   }
 }
 
+const speak = async ($: EngineInterface, markdown: string, settings: Settings, length: string) => {
+  const text = spoken(markdown, length)
+  await stop($)
+
+  if (text === '') {
+    return
+  }
+
+  if (await isNeural($)) {
+    const query = `voice=${encodeURIComponent(settings.voice)}&lang=${encodeURIComponent(settings.lang)}`
+    const said = await post($, `speak?${query}`, text)
+
+    if (said?.ok) {
+      return
+    }
+
+    // Not up yet, or gone with the session that ran it: the system voice says this one.
+    void serveLater($, settings)
+  }
+
+  const mine = generation
+
+  for (const argv of systemVoice === undefined ? SYSTEM_VOICES : [systemVoice]) {
+    try {
+      const child = $.process.spawn({ argv, input: text })
+      let step = await child.next()
+
+      while (!step.done) {
+        if (/^\d+\s*$/.test(step.value.text) && mine === generation) {
+          speaking = step.value.text.trim()
+        }
+
+        step = await child.next()
+      }
+
+      if (mine !== generation) {
+        return
+      }
+
+      // Ended on its own: its id may be another process's by the next stop.
+      speaking = undefined
+
+      if (step.value.code === 0) {
+        systemVoice = argv
+
+        return
+      }
+    } catch {
+      // Not on this machine: the next voice.
+      if (mine !== generation) {
+        return
+      }
+    }
+  }
+
+  $.ui.toast('talkback found no system voice. On Linux, install espeak-ng.')
+}
+
 // One line of the server's feed.
 const heed = async ($: EngineInterface, line: string, settings: Settings) => {
   if (line.startsWith('progress: ')) {
@@ -150,6 +224,8 @@ const heed = async ($: EngineInterface, line: string, settings: Settings) => {
 
     if (/^(stop|quiet|be quiet|enough)[.!]?$/i.test(text)) {
       await stop($)
+    } else if (ASKS_FOR_MORE.test(text) && lastAnswer !== '') {
+      await speak($, lastAnswer, settings, 'full')
     } else if (await read($, isLive)) {
       await $.prompt.submit({ text, asUser: true })
     }
@@ -193,62 +269,9 @@ const serve = async ($: EngineInterface, settings: Settings) => {
   }
 }
 
-const speak = async ($: EngineInterface, markdown: string, settings: Settings, length: string) => {
-  const text = spoken(markdown, length)
-  await stop($)
-
-  if (text === '') {
-    return
-  }
-
-  if (await isNeural($)) {
-    const query = `voice=${encodeURIComponent(settings.voice)}&lang=${encodeURIComponent(settings.lang)}`
-    const said = await post($, `speak?${query}`, text)
-
-    if (said?.ok) {
-      return
-    }
-
-    // Not up yet, or gone with the session that ran it: the system voice says this one.
-    void serve($, settings)
-  }
-
-  const mine = generation
-
-  for (const argv of systemVoice === undefined ? SYSTEM_VOICES : [systemVoice]) {
-    try {
-      const child = $.process.spawn({ argv, input: text })
-      let step = await child.next()
-
-      while (!step.done) {
-        if (/^\d+\s*$/.test(step.value.text) && mine === generation) {
-          speaking = step.value.text.trim()
-        }
-
-        step = await child.next()
-      }
-
-      if (mine !== generation) {
-        return
-      }
-
-      // Ended on its own: its id may be another process's by the next stop.
-      speaking = undefined
-
-      if (step.value.code === 0) {
-        systemVoice = argv
-
-        return
-      }
-    } catch {
-      // Not on this machine: the next voice.
-      if (mine !== generation) {
-        return
-      }
-    }
-  }
-
-  $.ui.toast('talkback found no system voice. On Linux, install espeak-ng.')
+// speak comes before serve in this file and serve after it: this is how the first reaches the second.
+function serveLater($: EngineInterface, settings: Settings) {
+  return serve($, settings)
 }
 
 // Hands-free on or off: the ears need the server, so going live starts it.
@@ -290,7 +313,7 @@ export const register: Register = (on, options) => {
     await $.command.register({
       name: 'talkback',
       description:
-        'Toggle spoken replies. "live": hands-free, your speech is sent as prompts. "init": the neural voice. "system": the system voice. "remove": delete the downloaded models. "stop": quiet now',
+        'Toggle spoken replies. "live": hands-free, your speech is sent as prompts. "init": the neural voice. "system": the system voice. "more": read the last reply in full. "remove": delete the downloaded models. "stop": quiet now',
     })
 
     if (await isNeural($)) {
@@ -302,6 +325,12 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: 'talkback' }, async ($, e) => {
     const choice = e.args.trim()
+
+    if (choice === 'more') {
+      void speak($, lastAnswer, settings, 'full')
+
+      return { text: lastAnswer === '' ? 'Nothing to read yet.' : 'Reading the last reply in full.' }
+    }
 
     if (choice === 'stop') {
       await stop($)
@@ -357,6 +386,7 @@ export const register: Register = (on, options) => {
   // The person has the floor again: Claude stops talking.
   on('prompt.submit', async ($, e, next) => {
     await stop($)
+    wantsAll = ASKS_FOR_ALL.test(e.text)
 
     return next(e)
   })
@@ -369,6 +399,8 @@ export const register: Register = (on, options) => {
       return composed
     }
 
+    isToldToSummarize = true
+
     const text = (await read($, isLive)) ? `${SPOKEN_REPLIES}\n\n${DICTATED_PROMPTS}` : SPOKEN_REPLIES
 
     return {
@@ -380,8 +412,10 @@ export const register: Register = (on, options) => {
     const isMainAnswer = e.agentId === undefined && e.reason === 'answer'
 
     if (isMainAnswer && (await isActive($))) {
+      lastAnswer = e.answer
+      const length = wantsAll ? 'full' : settings.length === 'brief' && !isToldToSummarize ? 'normal' : settings.length
       // Not awaited: the turn ends now, the speech runs on.
-      void speak($, e.answer, settings, settings.length)
+      void speak($, e.answer, settings, length)
     }
 
     return next(e)
