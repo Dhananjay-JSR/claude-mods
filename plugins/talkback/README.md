@@ -8,6 +8,12 @@
 
 <p align="center"><sub>Part of the <a href="https://github.com/Dhananjay-JSR/claude-mods">claude-mods</a> marketplace.</sub></p>
 
+<p align="center">
+  <img src="assets/session.png" alt="A Claude Code session: a dictated question, Claude's reply with its opening paragraph marked as spoken, and talkback's row above the prompt reading Voice replies on, speaking, with Stop and Mic on: hands-free buttons" width="760">
+</p>
+
+<p align="center"><sub>An illustration of a hands-free session, drawn from <a href="assets/demo.svg">assets/demo.svg</a>: not a screenshot. The two labels on the right are notes on the picture.</sub></p>
+
 A **Claude Mod** that speaks Claude's replies aloud and, in hands-free mode, sends what you say as the next prompt.
 
 Claude Code's `/voice` is dictation only: you can talk, but the reply is text. talkback is the other half. Turn `/voice` on and replies are spoken, with nothing else to set up.

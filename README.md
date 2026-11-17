@@ -38,6 +38,10 @@ See what Claude is about to do, in one line above the prompt — and a red warni
 
 Claude speaks its replies aloud whenever `/voice` is on, and in hands-free mode listens for yours. The system voice needs no setup; a local neural voice and local speech recognition are one command away.
 
+<p align="center">
+  <img src="plugins/talkback/assets/session.png" alt="A Claude Code session with talkback: a dictated question, a spoken reply, and the row above the prompt reading Voice replies on, speaking" width="760">
+</p>
+
 ```
 /plugin install talkback@claude-mods
 ```
