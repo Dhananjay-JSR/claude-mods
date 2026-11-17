@@ -10,7 +10,7 @@ Claude Code's `/voice` is dictation only: you can talk, but the reply is text. t
 
 ## What it does
 
-- **Speaks each reply** when the turn ends: the final answer only, never tool output or a subagent's report. Code blocks, links and markdown symbols are skipped.
+- **Speaks each reply as it is written:** every sentence is said as soon as it is finished, so the voice starts with the first words and not when the turn ends. That includes what Claude says between tool calls; tool output and a subagent's report are never read. Code blocks, links and markdown symbols are skipped.
 - **Follows `/voice`.** Spoken replies are on whenever `/voice` is on. `/talkback` flips them for the session.
 - **Speaks permission prompts and idle nudges,** so you hear from across the room when Claude needs you.
 - **Stops when you take over:** the `Stop` button above the prompt, a new prompt, or `/talkback stop` cuts the voice mid-word.
@@ -71,7 +71,7 @@ Set in `/config`:
 
 ## How it works
 
-`hooks/register.tsx` is the whole mod: a `turn.complete` hook speaks the answer, a `prompt.submit` hook stops it, a `prompt.compose` hook asks for the spoken opening, and a `ui.render` hook draws the row above the prompt. `server/talkback_server.py` is the optional local server, run with `uv`; the mod reads its standard output for what the microphone heard.
+`hooks/register.tsx` is the whole mod: a `turn.step` hook speaks the reply as it streams (and a `turn.complete` hook speaks it whole where that one is skipped), a `prompt.submit` hook stops it, a `prompt.compose` hook asks for the spoken opening, and a `ui.render` hook draws the row above the prompt. `server/talkback_server.py` is the optional local server, run with `uv`; the mod reads its standard output for what the microphone heard.
 
 ```bash
 claude plugin validate plugins/talkback

@@ -182,3 +182,45 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
   expect(posted.slice(-2).join(' ')).toBe('listen?on=0&lang=en-us&headphones=0&pause=2 quit')
   expect(ran.at(-1)?.endsWith('talkback_server.py --remove')).toBe(true)
 })
+
+test('a reply is spoken while it streams, sentence by sentence, and not again when the turn ends', async ($, on) => {
+  const posted: string[] = []
+  on('settings.read', () => ({ value: { voiceEnabled: true } }))
+  on('store.get', () => ({ value: true }))
+  on('http.fetch', (_, e) => {
+    posted.push(`${e.url.replace(/^.*\/(\w+).*$/, '$1')}: ${e.init?.body ?? ''}`)
+
+    return { value: { status: 200, ok: true, headers: {}, text: '' } }
+  })
+  on('turn.complete', (_, e) => ({ text: e.answer }))
+  // The model's reply, in the pieces it arrives in: a sentence ends mid-piece, code is skipped.
+  on('turn.step', async function* (_, e) {
+    for (const text of ['The tests ', 'pass. I chan', 'ged one file.\n\n```ts\nlet x = 1\n', '```\nDone', '!']) {
+      yield { kind: 'text' as const, index: 0, text }
+      await settle()
+    }
+
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const, usage: null }
+  })
+
+  const step = { turnId: 'streamed', index: 0, model: 'model', messageCount: 1 }
+  const seen: string[] = []
+
+  for await (const chunk of $.turn.step(step as Parameters<typeof $.turn.step>[0])) {
+    if (chunk.kind === 'text') {
+      seen.push(chunk.text)
+    }
+  }
+
+  await settle()
+  // Every piece still reaches the screen, and each sentence was sent to the voice as it ended.
+  expect(seen.join('')).toBe('The tests pass. I changed one file.\n\n```ts\nlet x = 1\n```\nDone!')
+  expect(posted.filter(line => line.startsWith('speak')).join(' | ')).toBe(
+    'speak: The tests pass. | speak: I changed one file. Code block. | speak: Done!',
+  )
+
+  const said = posted.length
+  await $.turn.complete({ ...TURN, turnId: 'streamed', answer: 'The tests pass.' })
+  await settle()
+  expect(posted.length).toBe(said)
+})

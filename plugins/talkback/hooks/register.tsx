@@ -9,6 +9,9 @@ const isLive = atom({ plugin: 'talkback', key: 'isLive' } as const, false)
 const status = atom({ plugin: 'talkback', key: 'status' } as const, 'idle')
 const download = atom({ plugin: 'talkback', key: 'download' } as const, null)
 
+// A reply as it streams in: what has arrived and not been said yet, and where the reading stands.
+type Reading = { pending: string; isInCode: boolean; isOver: boolean; hasSpoken: boolean }
+
 type Settings = { voice: string; lang: string; length: string; hasHeadphones: boolean; pause: number }
 
 // A listener cannot skim: past this many characters the rest stays on screen.
@@ -96,13 +99,64 @@ const spoken = (markdown: string, length: string) => {
   return text.slice(0, SPOKEN_LIMIT * 2)
 }
 
+// Takes from a streaming reply the sentences that are finished, ready to say; the
+// unfinished tail stays for the next piece. In `brief` the reading ends at the first blank line.
+const finished = (reading: Reading, length: string, isEnd: boolean) => {
+  const lines = reading.pending.split('\n')
+  let tail = isEnd ? '' : (lines.pop() ?? '')
+  const prose: string[] = []
+
+  for (const line of lines) {
+    if (reading.isOver) {
+      break
+    }
+
+    if (line.trimStart().startsWith('```')) {
+      reading.isInCode = !reading.isInCode
+
+      if (reading.isInCode) {
+        prose.push('Code block.')
+      }
+    } else if (line.trim() === '') {
+      reading.isOver = length === 'brief' && (reading.hasSpoken || prose.length > 0)
+    } else if (!reading.isInCode) {
+      prose.push(line)
+    }
+  }
+
+  // The line still arriving: the sentences of it that have ended can be said now.
+  if (!reading.isInCode && !reading.isOver && !tail.trimStart().startsWith('`')) {
+    const end = Math.max(...['. ', '! ', '? ', ': '].map(mark => tail.lastIndexOf(mark)))
+
+    if (end > 0) {
+      prose.push(tail.slice(0, end + 1))
+      tail = tail.slice(end + 2)
+    }
+  }
+
+  reading.pending = tail
+  const text = sentences(prose.join('\n')).join(' ')
+  reading.hasSpoken = reading.hasSpoken || text !== ''
+
+  return text
+}
+
 const isActive = async ($: EngineInterface) =>
   (await read($, override)) ?? (await $.settings.read()).voiceEnabled === true
 
 const isNeural = async ($: EngineInterface) => (await $.store.get('neural')) === true
 
-// Bumped by every new utterance and every stop: a stale one tries no further voice.
+// Bumped by every stop: what was being said or waiting to be said is stale.
 let generation = 0
+// What is waiting for the voice, and whether something is saying it.
+let backlog: string[] = []
+let isDraining = false
+// The person silenced this turn: nothing more of it is said.
+let isMuted = false
+// The turn whose reply was spoken as it streamed, so its end does not say it again.
+let streamedTurn = ''
+// How much of this turn has been said, for the `normal` length.
+let spokenChars = 0
 // The system voice speaking now, by process id. Ending its stream would not
 // stop it: a silent child's stream only ends when the child does.
 let speaking: string | undefined
@@ -131,6 +185,7 @@ const listen = async ($: EngineInterface, { lang, hasHeadphones, pause }: Settin
 
 const stop = async ($: EngineInterface) => {
   generation += 1
+  backlog = []
 
   if (speaking !== undefined) {
     const pid = speaking
@@ -146,14 +201,15 @@ const stop = async ($: EngineInterface) => {
   }
 }
 
-const speak = async ($: EngineInterface, markdown: string, settings: Settings, length: string) => {
-  const text = spoken(markdown, length)
-  await stop($)
+// The person's own stop: this turn stays quiet from here.
+const hush = ($: EngineInterface) => {
+  isMuted = true
 
-  if (text === '') {
-    return
-  }
+  return stop($)
+}
 
+// Says one piece of text with the neural voice, or failing that the system's.
+const voice = async ($: EngineInterface, text: string, settings: Settings, mine: number) => {
   if (await isNeural($)) {
     const query = `voice=${encodeURIComponent(settings.voice)}&lang=${encodeURIComponent(settings.lang)}`
     const said = await post($, `speak?${query}`, text)
@@ -165,8 +221,6 @@ const speak = async ($: EngineInterface, markdown: string, settings: Settings, l
     // Not up yet, or gone with the session that ran it: the system voice says this one.
     void serveLater($, settings)
   }
-
-  const mine = generation
 
   for (const argv of systemVoice === undefined ? SYSTEM_VOICES : [systemVoice]) {
     try {
@@ -204,6 +258,55 @@ const speak = async ($: EngineInterface, markdown: string, settings: Settings, l
   $.ui.toast('talkback found no system voice. On Linux, install espeak-ng.')
 }
 
+// Says `text` after whatever is already being said. Pieces that arrive while
+// the system voice is busy are said together, as one run of speech.
+const say = async ($: EngineInterface, text: string, settings: Settings) => {
+  backlog.push(text)
+
+  if (isDraining) {
+    return
+  }
+
+  isDraining = true
+
+  try {
+    while (backlog.length > 0) {
+      const run = backlog.join(' ')
+      backlog = []
+      await voice($, run, settings, generation)
+    }
+  } finally {
+    isDraining = false
+  }
+}
+
+// Says a whole reply, in place of whatever was being said.
+const speak = async ($: EngineInterface, markdown: string, settings: Settings, length: string) => {
+  const text = spoken(markdown, length)
+  await stop($)
+
+  if (text !== '') {
+    await say($, text, settings)
+  }
+}
+
+// Says what has newly finished of a reply that is still streaming.
+const utter = ($: EngineInterface, reading: Reading, settings: Settings, length: string, isEnd: boolean) => {
+  let text = finished(reading, length, isEnd)
+
+  if (text === '' || isMuted || (length === 'normal' && spokenChars >= SPOKEN_LIMIT)) {
+    return
+  }
+
+  spokenChars += text.length
+
+  if (length === 'normal' && spokenChars >= SPOKEN_LIMIT) {
+    text = `${text} More on screen.`
+  }
+
+  void say($, text, settings)
+}
+
 // One line of the server's feed.
 const heed = async ($: EngineInterface, line: string, settings: Settings) => {
   if (line.startsWith('progress: ')) {
@@ -223,7 +326,7 @@ const heed = async ($: EngineInterface, line: string, settings: Settings) => {
     const text = line.slice(7).trim()
 
     if (/^(stop|quiet|be quiet|enough)[.!]?$/i.test(text)) {
-      await stop($)
+      await hush($)
     } else if (ASKS_FOR_MORE.test(text) && lastAnswer !== '') {
       await speak($, lastAnswer, settings, 'full')
     } else if (await read($, isLive)) {
@@ -333,7 +436,7 @@ export const register: Register = (on, options) => {
     }
 
     if (choice === 'stop') {
-      await stop($)
+      await hush($)
 
       return { text: 'Quiet.' }
     }
@@ -408,14 +511,45 @@ export const register: Register = (on, options) => {
     }
   })
 
+  // The reply is spoken while it is still being written: each sentence as it is finished.
+  on('turn.step', async function* ($, e, next) {
+    const isHeard = e.agentId === undefined && (await isActive($))
+
+    if (isHeard && e.index === 0) {
+      isMuted = false
+      spokenChars = 0
+    }
+
+    const length = wantsAll ? 'full' : settings.length === 'brief' && !isToldToSummarize ? 'normal' : settings.length
+    const reading: Reading = { pending: '', isInCode: false, isOver: false, hasSpoken: false }
+
+    for await (const chunk of next(e)) {
+      if (isHeard && chunk.kind === 'text') {
+        streamedTurn = e.turnId
+        reading.pending += chunk.text
+        utter($, reading, settings, length, false)
+      }
+
+      yield chunk
+    }
+
+    if (isHeard) {
+      utter($, reading, settings, length, true)
+    }
+  })
+
   on('turn.complete', async ($, e, next) => {
     const isMainAnswer = e.agentId === undefined && e.reason === 'answer'
 
     if (isMainAnswer && (await isActive($))) {
       lastAnswer = e.answer
-      const length = wantsAll ? 'full' : settings.length === 'brief' && !isToldToSummarize ? 'normal' : settings.length
-      // Not awaited: the turn ends now, the speech runs on.
-      void speak($, e.answer, settings, length)
+
+      // Only when the reply was not heard as it streamed (another plugin can skip that hook).
+      if (streamedTurn !== e.turnId) {
+        const length = wantsAll ? 'full' : settings.length === 'brief' && !isToldToSummarize ? 'normal' : settings.length
+        // Not awaited: the turn ends now, the speech runs on.
+        void speak($, e.answer, settings, length)
+      }
     }
 
     return next(e)
@@ -452,7 +586,7 @@ export const register: Register = (on, options) => {
     return (
       <Box>
         <Text dimColor>🎙 Voice replies on {STATUS[await read($, status)]} </Text>
-        <Button key="stop" label="Stop" onPress={() => stop($)} />
+        <Button key="stop" label="Stop" onPress={() => hush($)} />
         <Button
           key="live"
           label={isHandsFree ? 'Mic on: hands-free' : 'Mic off: go hands-free'}
