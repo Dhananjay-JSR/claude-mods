@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title desc">
+  <title id="title">talkback</title>
+  <desc id="desc">A coral speech bubble with a five-bar sound wave inside it, set in a dark rounded square.</desc>
+
+  <rect width="512" height="512" rx="112" fill="#1A1614"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="110.5" fill="none"
+        stroke="#ffffff" stroke-opacity="0.07"/>
+
+  <!-- speech bubble, its tail at the lower left: Claude talking back -->
+  <path d="M168 104 H344 A72 72 0 0 1 416 176 V268 A72 72 0 0 1 344 340 H242
+           L160 416 L166 340 A72 72 0 0 1 96 268 V176 A72 72 0 0 1 168 104 Z"
+        fill="none" stroke="#DE7A55" stroke-width="26" stroke-linejoin="round"/>
+
+  <!-- sheen on the upper-left corner of the bubble -->
+  <path d="M100.3 151.4 A72 72 0 0 1 143.4 108.3" fill="none"
+        stroke="#FFC7AC" stroke-width="9" stroke-linecap="round" stroke-opacity="0.9"/>
+
+  <!-- the voice: few bars, wide apart, so it still reads as sound at 32px -->
+  <g stroke="#FFE7D8" stroke-width="24" stroke-linecap="round">
+    <path d="M176 204 V240"/>
+    <path d="M216 174 V270"/>
+    <path d="M256 152 V292"/>
+    <path d="M296 182 V262"/>
+    <path d="M336 200 V244"/>
+  </g>
+</svg>

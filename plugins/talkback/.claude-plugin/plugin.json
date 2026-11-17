@@ -1,0 +1,46 @@
+{
+  "name": "talkback",
+  "version": "0.8.2",
+  "description": "Hands-free Claude Code: Claude speaks its replies and, in live mode, listens for yours. All speech runs on this machine, on macOS, Linux and Windows",
+  "author": {
+    "name": "Dhananjay"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "voice": {
+      "type": "string",
+      "title": "Neural voice",
+      "description": "The Kokoro voice /talkback init speaks with (af_heart, am_michael, bf_emma, hf_alpha for Hindi, ...).",
+      "default": "af_heart"
+    },
+    "lang": {
+      "type": "string",
+      "title": "Neural language",
+      "description": "The language the neural voice reads in (en-us, en-gb, hi, es, fr-fr, it, ja, pt-br, cmn).",
+      "default": "en-us"
+    },
+    "length": {
+      "type": "string",
+      "title": "Spoken length",
+      "description": "brief: Claude opens each reply with a short spoken summary and only that is read. normal: the first part of the reply. full: all of it.",
+      "options": [
+        "brief",
+        "normal",
+        "full"
+      ],
+      "default": "brief"
+    },
+    "headphones": {
+      "type": "boolean",
+      "title": "Headphones",
+      "description": "On: talking over Claude stops the voice at once. Off: the voice pauses, and stops only if words are heard, since through speakers some of its own sound reaches the microphone.",
+      "default": false
+    },
+    "pause": {
+      "type": "number",
+      "title": "Pause before sending",
+      "description": "Hands-free: seconds of silence that end what you are saying. Raise it if you are cut off while thinking; lower it for a quicker reply.",
+      "default": 2
+    }
+  }
+}

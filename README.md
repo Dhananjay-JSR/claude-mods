@@ -8,7 +8,7 @@
   <img alt="No dependencies" src="https://img.shields.io/badge/dependencies-none-5FC4D4?style=flat-square">
 </p>
 
-One marketplace, a few mods, each doing one thing well. Every mod runs locally, carries no dependencies, and says what it reaches for before it runs.
+One marketplace, a few mods, each doing one thing well. Every mod runs locally and says what it reaches for before it runs. None needs a dependency to work; talkback's optional neural voice downloads its models on request.
 
 ## Install
 
@@ -33,6 +33,20 @@ See what Claude is about to do, in one line above the prompt — and a red warni
 ```
 
 [Read the docs →](plugins/intent-lens)
+
+### [talkback](plugins/talkback)
+
+Claude speaks its replies aloud whenever `/voice` is on, and in hands-free mode listens for yours. The system voice needs no setup; a local neural voice and local speech recognition are one command away.
+
+<p align="center">
+  <img src="plugins/talkback/assets/session.png" alt="A Claude Code session with talkback: a dictated question, a spoken reply, and the row above the prompt reading Voice replies on, speaking" width="760">
+</p>
+
+```
+/plugin install talkback@claude-mods
+```
+
+[Read the docs →](plugins/talkback)
 
 Each mod has its own README with commands, internals, and limits. More land here as they are finished.
 

@@ -39,11 +39,16 @@ jobs:
         run: |
           claude plugin validate . --strict
           claude plugin validate ./plugins/intent-lens --strict
+          claude plugin validate ./plugins/talkback --strict
+
+      - name: Run talkback's hook tests
+        run: claude plugin test ./plugins/talkback
 
       - name: Install from the marketplace
         run: |
           claude plugin marketplace add ./
           claude plugin install intent-lens@claude-mods
+          claude plugin install talkback@claude-mods
           claude plugin list
 
   test:
@@ -61,6 +66,9 @@ jobs:
 
       - name: Run the hook tests
         run: node plugins/intent-lens/tests/intent.test.mjs
+
+      - name: Parse talkback's server
+        run: python3 -m py_compile plugins/talkback/server/talkback_server.py
 
   assets:
     name: Assets
