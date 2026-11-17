@@ -31,7 +31,7 @@ Claude Code's `/voice` is dictation only: you can talk, but the reply is text. t
 | **Neural voice** (`/talkback init`) | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx), kept warm by a small local server | needs [uv](https://docs.astral.sh/uv); downloads about 120 MB once |
 | **Ears** (`/talkback live`) | [Whisper small](https://github.com/SYSTRAN/faster-whisper), in the same server | downloads about 480 MB once |
 
-After the first download nothing leaves the machine: the server listens on `127.0.0.1` only. The models are kept in `~/.cache/talkback` and the Hugging Face cache.
+A progress bar above the prompt shows each download. After the first download nothing leaves the machine: the server listens on `127.0.0.1` only. The models are kept in `~/.cache/talkback`.
 
 ## Commands
 

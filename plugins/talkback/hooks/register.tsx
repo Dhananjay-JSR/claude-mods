@@ -7,6 +7,7 @@ const override = atom({ plugin: 'talkback', key: 'override' } as const, null)
 // Hands-free: the microphone is open and what the person says is submitted.
 const isLive = atom({ plugin: 'talkback', key: 'isLive' } as const, false)
 const status = atom({ plugin: 'talkback', key: 'status' } as const, 'idle')
+const download = atom({ plugin: 'talkback', key: 'download' } as const, null)
 
 type Settings = { voice: string; lang: string; length: string; hasHeadphones: boolean; pause: number }
 
@@ -26,6 +27,13 @@ const STATUS: Record<Status, string> = {
   hearing: '● hearing you',
   transcribing: '● transcribing',
   speaking: '◆ speaking',
+}
+
+// The surfaces have no progress element: twenty cells of text are the bar.
+const bar = (percent: number) => {
+  const filled = Math.round(percent / 5)
+
+  return `${'█'.repeat(filled)}${'░'.repeat(20 - filled)} ${percent}%`
 }
 
 // Prints its own process id, then becomes the voice: a stop kills that id.
@@ -124,8 +132,10 @@ const stop = async ($: EngineInterface) => {
 
 // One line of the server's feed.
 const heed = async ($: EngineInterface, line: string, settings: Settings) => {
-  if (line.startsWith('downloading')) {
-    $.ui.toast(`talkback is ${line}`)
+  if (line.startsWith('progress: ')) {
+    const [label, percent] = line.slice(10).split('|')
+    const isDone = label === undefined || percent === undefined
+    await update($, download, () => (isDone ? null : { label, percent: Number(percent) || 0 }))
   } else if (line === 'ready') {
     $.ui.toast('talkback: neural voice ready')
     await listen($, settings)
@@ -179,6 +189,7 @@ const serve = async ($: EngineInterface, settings: Settings) => {
   } finally {
     isServing = false
     await update($, status, () => 'idle')
+    await update($, download, () => null)
   }
 }
 
@@ -291,7 +302,7 @@ export const register: Register = (on, options) => {
 
       return {
         text: isOn
-          ? 'Hands-free on: speak, pause, and it is sent. The first time, the ears take a minute to download.'
+          ? 'Hands-free on: speak, pause, and it is sent. The first time, the ears download first.'
           : 'Hands-free off: the microphone is closed.',
       }
     }
@@ -371,6 +382,17 @@ export const register: Register = (on, options) => {
 
     const { Box, Button, Text } = $.ui.resolve(e)
     const isHandsFree = await read($, isLive)
+    const coming = await read($, download)
+
+    if (coming !== null) {
+      return (
+        <Box>
+          <Text dimColor>
+            🎙 Downloading {coming.label} {bar(coming.percent)}
+          </Text>
+        </Box>
+      )
+    }
 
     return (
       <Box>

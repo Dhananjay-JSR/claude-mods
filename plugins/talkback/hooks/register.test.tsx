@@ -93,6 +93,10 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
 
     return { text: e.text }
   })
+  let finish = () => {}
+  const downloaded = new Promise<void>(done => {
+    finish = done
+  })
   // The server's feed, a line split across two pieces as a pipe may split it.
   on('process.spawn', async function* (_, e) {
     if (e.argv[0] !== 'uv') {
@@ -100,7 +104,9 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
     }
 
     await settle()
-    yield { stream: 'stdout' as const, text: 'ready\nstate: listening\nheard: run the ' }
+    yield { stream: 'stdout' as const, text: 'progress: the ears (480 MB)|42\n' }
+    await downloaded
+    yield { stream: 'stdout' as const, text: 'progress: done\nready\nstate: listening\nheard: run the ' }
     yield { stream: 'stdout' as const, text: 'tests\nheard: Stop.\n' }
     await settle()
 
@@ -111,6 +117,21 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
   // Cast: a newer build's typings ask a test for the fields the engine stamps.
   await $.command.run({ command: 'talkback', args: 'live' } as Parameters<typeof $.command.run>[0])
+  await settle()
+  await settle()
+
+  // While a model comes down, the row above the prompt is its progress bar.
+  const band = await $.ui.mount({
+    plugin: 'talkback',
+    component: 'AbovePrompt',
+    surface: 'terminal',
+    props: { hasSurvey: false, isWorking: false, maxRows: 10 },
+  } as Parameters<typeof $.ui.mount>[0])
+  expect((await band.find({ type: 'Text' }))?.text).toBe(
+    '🎙 Downloading the ears (480 MB) ████████░░░░░░░░░░░░ 42%',
+  )
+  await band.unmount()
+  finish()
   await settle()
   await settle()
   await settle()

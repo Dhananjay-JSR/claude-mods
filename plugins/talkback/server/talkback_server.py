@@ -10,7 +10,7 @@ opens the microphone: each thing the person says is transcribed with Whisper
 and printed as `heard: <text>` once they have been silent for ?pause= seconds
 (a shorter pause mid-sentence is waited out); ?on=0 closes it.
 GET /health answers once the voice is loaded. Lines on standard output
-(`ready`, `downloading ...`, `state: ...`, `heard: ...`) are the mod's feed.
+(`ready`, `progress: <what>|<percent>`, `state: ...`, `heard: ...`) are the mod's feed.
 Nothing leaves the machine after the first downloads.
 """
 import collections
@@ -24,7 +24,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 PORT = 47821
-FILES = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
+VOICE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
+EARS = "https://huggingface.co/Systran/faster-whisper-small/resolve/main/"
 CACHE = Path.home() / ".cache" / "talkback"
 MIC_RATE = 16000
 BLOCK = MIC_RATE // 10
@@ -55,14 +56,24 @@ def rest() -> None:
     emit("state: listening" if is_listening else "state: idle")
 
 
-def fetch(name: str) -> str:
+def fetch(url: str, name: str, label: str) -> str:
+    """Downloads a model file once, telling the mod how far along it is."""
     path = CACHE / name
     if not path.exists():
-        emit(f"downloading the voice ({name})")
-        CACHE.mkdir(parents=True, exist_ok=True)
-        part = path.with_suffix(".part")
-        urllib.request.urlretrieve(FILES + name, part)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        part = path.with_suffix(path.suffix + ".part")
+        seen = -1
+
+        def report(blocks: int, size: int, total: int) -> None:
+            nonlocal seen
+            percent = min(100, blocks * size * 100 // total) if total > 0 else 0
+            if percent != seen:
+                seen = percent
+                emit(f"progress: {label}|{percent}")
+
+        urllib.request.urlretrieve(url + name.rsplit("/", 1)[-1], part, report)
         part.rename(path)
+        emit("progress: done")
     return str(path)
 
 
@@ -96,8 +107,10 @@ def transcribe(numpy, clip) -> str:
     if ears is None:
         from faster_whisper import WhisperModel
 
-        emit("downloading the ears (Whisper small, about 480 MB, once)")
-        ears = WhisperModel("small", device="cpu", compute_type="int8")
+        # The small files first: the bar then runs once, over the model itself.
+        for name in ("config.json", "tokenizer.json", "vocabulary.txt", "model.bin"):
+            fetch(EARS, f"whisper-small/{name}", "the ears (480 MB)")
+        ears = WhisperModel(str(CACHE / "whisper-small"), device="cpu", compute_type="int8")
     # vad_filter drops a clip that was a door or a cough, not words.
     segments, _ = ears.transcribe(clip, language=language, vad_filter=True, beam_size=1)
     return " ".join(s.text.strip() for s in segments if s.no_speech_prob < 0.6).strip()
@@ -174,7 +187,10 @@ def main() -> None:
     import sounddevice
     from kokoro_onnx import Kokoro
 
-    kokoro = Kokoro(fetch("kokoro-v1.0.int8.onnx"), fetch("voices-v1.0.bin"))
+    kokoro = Kokoro(
+        fetch(VOICE, "kokoro-v1.0.int8.onnx", "the voice, 1 of 2 (90 MB)"),
+        fetch(VOICE, "voices-v1.0.bin", "the voice, 2 of 2 (30 MB)"),
+    )
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
