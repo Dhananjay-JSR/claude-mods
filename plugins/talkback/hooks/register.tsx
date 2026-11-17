@@ -28,6 +28,10 @@ const DICTATED_PROMPTS = `The person's messages are dictated and sent as soon as
 const ASKS_FOR_ALL =
   /\b(complete(ly)?|entire(ly)?|whole|in full|full(y)?|everything|all of it|in detail|detailed|word for word|read it all|(not|without) (just )?a summary)\b/i
 
+const SAYS_STOP = /^(stop|quiet|be quiet|enough)[.!]?$/i
+// Over the voice a word or two of the voice itself may lead the transcript.
+const SAYS_STOP_OVER = /^(\S+\s+){0,2}(stop|stop it|stop talking|be quiet|quiet|enough|shut up|pause)[.!?]*$/i
+
 // Said or typed after a short reading: the last reply again, all of it.
 const ASKS_FOR_MORE =
   /^(please )?((read|say|tell me|give me) (it all|the rest|everything|all of it|more|the whole thing)|continue|go on|keep going|more|read on)[.!]?$/i
@@ -322,10 +326,17 @@ const heed = async ($: EngineInterface, line: string, settings: Settings) => {
     if (state in STATUS) {
       await update($, status, () => state as Status)
     }
-  } else if (line.startsWith('heard: ')) {
-    const text = line.slice(7).trim()
+  } else if (line.startsWith('heard: ') || line.startsWith('heard-over: ')) {
+    // heard-over: said over the voice, which the server has already silenced.
+    const isOver = line.startsWith('heard-over: ')
+    const text = line.slice(line.indexOf(': ') + 2).trim()
 
-    if (/^(stop|quiet|be quiet|enough)[.!]?$/i.test(text)) {
+    if (isOver) {
+      // The rest of this turn stays unspoken too: the person has taken the floor.
+      await hush($)
+    }
+
+    if ((isOver ? SAYS_STOP_OVER : SAYS_STOP).test(text)) {
       await hush($)
     } else if (ASKS_FOR_MORE.test(text) && lastAnswer !== '') {
       await speak($, lastAnswer, settings, 'full')

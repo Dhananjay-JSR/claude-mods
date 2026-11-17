@@ -14,7 +14,8 @@ Claude Code's `/voice` is dictation only: you can talk, but the reply is text. t
 - **Follows `/voice`.** Spoken replies are on whenever `/voice` is on. `/talkback` flips them for the session.
 - **Speaks permission prompts and idle nudges,** so you hear from across the room when Claude needs you.
 - **Stops when you take over:** the `Stop` button above the prompt, a new prompt, or `/talkback stop` cuts the voice mid-word.
-- **Hands-free mode** (optional): the microphone stays open, and what you say is transcribed locally and submitted once you have been silent for two seconds. Then Claude answers aloud and the microphone opens again.
+- **Hands-free mode** (optional): the microphone stays open, and what you say is transcribed locally and submitted once you have been silent for two seconds. Then Claude answers aloud.
+- **Talk over it.** In hands-free mode the voice's own echo is cancelled out of the microphone, so you can interrupt through speakers: say "stop" and it stops, say anything else and that becomes the next prompt.
 
 ## Install
 
@@ -29,7 +30,7 @@ Claude Code's `/voice` is dictation only: you can talk, but the reply is text. t
 | --- | --- | --- |
 | **System voice** (default) | `say` on macOS; `espeak-ng`, `espeak` or `spd-say` on Linux; PowerShell speech on Windows | none on macOS and Windows; on Linux, install `espeak-ng` |
 | **Neural voice** (`/talkback init`) | [Kokoro](https://github.com/thewh1teagle/kokoro-onnx), kept warm by a small local server | needs [uv](https://docs.astral.sh/uv); downloads about 120 MB once |
-| **Ears** (`/talkback live`) | [Whisper small](https://github.com/SYSTRAN/faster-whisper), in the same server | downloads about 480 MB once |
+| **Ears** (`/talkback live`) | [Whisper small](https://github.com/SYSTRAN/faster-whisper) and WebRTC echo cancelling (from the [LiveKit](https://github.com/livekit/python-sdks) package, used offline), in the same server | downloads about 480 MB once |
 
 A progress bar above the prompt shows each download. After the first download nothing leaves the machine: the server listens on `127.0.0.1` only. The models are kept in `~/.cache/talkback`. `/talkback remove` deletes them; the Python packages `uv` installed stay in uv's own cache (`uv cache clean`).
 
@@ -57,7 +58,7 @@ Set in `/config`:
 | Neural voice | `af_heart` | Any Kokoro voice (`am_michael`, `bf_emma`, `hf_alpha` for Hindi, ...) |
 | Neural language | `en-us` | Also the language the ears expect (`hi`, `es`, `fr-fr`, `ja`, ...) |
 | Pause before sending | `2` | Hands-free: seconds of silence that end what you are saying. A shorter pause mid-sentence is waited out |
-| Headphones | off | On: the microphone stays open while Claude speaks, so talking over the voice interrupts it. With speakers, leave it off or Claude hears itself |
+| Headphones | off | On: talking over Claude stops the voice at once. Off: the voice pauses, and stops only if words are heard |
 
 ## Limits
 

@@ -136,7 +136,7 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
     yield { stream: 'stdout' as const, text: 'progress: the ears (480 MB)|42\n' }
     await downloaded
     yield { stream: 'stdout' as const, text: 'progress: done\nready\nstate: listening\nheard: run the ' }
-    yield { stream: 'stdout' as const, text: 'tests\nheard: Stop.\n' }
+    yield { stream: 'stdout' as const, text: 'tests\nheard: Stop.\nheard-over: okay stop\nheard-over: check the config first\n' }
     await settle()
 
     return { value: { code: 0, signal: null } }
@@ -171,7 +171,9 @@ test('hands-free: what the server hears is submitted as the person, and "stop" o
   await settle()
   await settle()
 
-  expect(submitted.length).toBe(1)
+  // Said over the voice: "okay stop" only stops, anything else is the next prompt.
+  expect(submitted.length).toBe(2)
+  expect(submitted[1]?.startsWith('check the config first (')).toBe(true)
   expect(submitted[0]?.startsWith('run the tests (')).toBe(true)
   expect(submitted[0]?.includes('"asUser":true')).toBe(true)
   expect(posted.includes('listen?on=1&lang=en-us&headphones=0&pause=2')).toBe(true)
