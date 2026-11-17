@@ -88,13 +88,13 @@ test('a reply is spoken by the first voice the machine has, code skipped, only w
   expect(posted.at(-1)?.endsWith(': All twelve tests pass.')).toBe(true)
 
   // A prompt that asks for all of it gets all of it, for that turn.
-  await $.prompt.submit({ text: 'Explain it completely, not just a summary' })
+  await $.prompt.submit({ text: 'Explain it completely, not just a summary' } as Parameters<typeof $.prompt.submit>[0])
   await $.turn.complete({ ...TURN, answer: reply })
   await settle()
   expect(posted.at(-1)?.endsWith(': All twelve tests pass. Details a.ts changed')).toBe(true)
 
   // And /talkback more reads the last reply in full after a brief reading.
-  await $.prompt.submit({ text: 'thanks' })
+  await $.prompt.submit({ text: 'thanks' } as Parameters<typeof $.prompt.submit>[0])
   await $.turn.complete({ ...TURN, answer: reply })
   await settle()
   expect(posted.at(-1)?.endsWith(': All twelve tests pass.')).toBe(true)
