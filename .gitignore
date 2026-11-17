@@ -4,3 +4,6 @@
 
 # OS noise
 .DS_Store
+
+# Python
+__pycache__/
