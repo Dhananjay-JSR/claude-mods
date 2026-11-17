@@ -5,7 +5,8 @@
 """talkback's voice and ears: both local, loaded once and kept warm on localhost.
 
 POST /speak (the text as the body, ?voice= and ?lang=) speaks it with Kokoro,
-replacing whatever was being said. POST /stop goes quiet. POST /listen?on=1
+after whatever is already waiting to be said, so a reply can be spoken while it
+is still being written. POST /stop goes quiet and drops what was waiting. POST /listen?on=1
 opens the microphone: each thing the person says is transcribed with Whisper
 and printed as `heard: <text>` once they have been silent for ?pause= seconds
 (a shorter pause mid-sentence is waited out); ?on=0 closes it.
@@ -16,6 +17,7 @@ Nothing leaves the machine after the first downloads.
 """
 import collections
 import os
+import queue
 import re
 import shutil
 import sys
@@ -36,8 +38,10 @@ BLOCK = MIC_RATE // 10
 # far, so the text is ready by the time the longer pause that sends it has passed.
 EARLY_BLOCKS = 7
 
-# Bumped by every /speak and /stop: a stale utterance says no further sentence.
+# Bumped by every /stop: what was waiting to be said is stale and stays unsaid.
 generation = 0
+# What is waiting to be said: (generation, text, voice, lang).
+waiting = queue.Queue()
 is_playing = False
 is_listening = False
 # With headphones the microphone cannot hear the voice, so the person may talk over it.
@@ -80,13 +84,15 @@ def fetch(url: str, name: str, label: str) -> str:
     return str(path)
 
 
-def say(kokoro, sounddevice, text: str, voice: str, lang: str, mine: int) -> None:
+def say(kokoro, sounddevice) -> None:
+    """Says what is waiting, in order, for as long as the server lives."""
     global is_playing, deaf_until
-    try:
+    while True:
+        mine, text, voice, lang = waiting.get()
         # One sentence at a time: the first is heard while the rest are still made.
         for sentence in re.split(r"(?<=[.!?:])\s+", text):
             if mine != generation:
-                return
+                break
             if not sentence.strip():
                 continue
             samples, rate = kokoro.create(sentence, voice=voice, lang=lang)
@@ -96,10 +102,9 @@ def say(kokoro, sounddevice, text: str, voice: str, lang: str, mine: int) -> Non
                 for start in range(0, len(samples), rate // 10):
                     if mine != generation:
                         out.abort()
-                        return
+                        break
                     out.write(samples[start : start + rate // 10])
-    finally:
-        if mine == generation:
+        if mine == generation and waiting.empty():
             is_playing = False
             deaf_until = time.monotonic() + 0.8
             rest()
@@ -223,17 +228,15 @@ def main() -> None:
                 os._exit(0)
             if url.path not in ("/speak", "/stop"):
                 return self.answer(404)
-            generation += 1
-            is_playing = url.path == "/speak"
-            if is_playing:
+            if url.path == "/speak":
                 text = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8")
-                emit("state: speaking")
-                threading.Thread(
-                    target=say,
-                    args=(kokoro, sounddevice, text, query.get("voice", "af_heart"), query.get("lang", "en-us"), generation),
-                    daemon=True,
-                ).start()
+                if not is_playing:
+                    emit("state: speaking")
+                is_playing = True
+                waiting.put((generation, text, query.get("voice", "af_heart"), query.get("lang", "en-us")))
             else:
+                generation += 1
+                is_playing = False
                 rest()
             self.answer(200)
 
@@ -246,6 +249,7 @@ def main() -> None:
             pass
 
     server.RequestHandlerClass = Handler
+    threading.Thread(target=say, args=(kokoro, sounddevice), daemon=True).start()
     emit("ready")
     server.serve_forever()
 
